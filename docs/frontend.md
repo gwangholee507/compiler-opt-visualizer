@@ -25,6 +25,13 @@
 ### 상수
 - `DEFAULT_CODE`: 텍스트 에디터에 처음 채워지는 예시 C 코드 (`square`, `sum_loop`)
 - `API_BASE`: 백엔드 주소 (`http://localhost:8080`, 하드코딩됨 — 배포 시 환경변수로 분리 필요)
+- `OPTIMIZATION_INFO`: `O0`~`O3` 각 레벨이 실제로 어떤 최적화를 하는지 초보자용으로 풀어쓴 설명 맵.
+  `InfoTooltip`에 전달되는 텍스트의 원본
+
+### `InfoTooltip({ text })` (컴포넌트)
+컬럼 헤더의 ⓘ 아이콘. 마우스 호버 또는 `tabIndex={0}`을 통한 키보드 포커스 시
+`text`를 말풍선(`tooltip-bubble`)으로 보여준다. CSS의 `:hover`/`:focus` 선택자로만 동작하며
+별도 JS 상태(useState) 없이 구현됨.
 
 ### `formatBytes(bytes) : string`
 바이트 숫자를 사람이 읽기 좋은 문자열로 변환.
@@ -40,9 +47,10 @@
 
 ### `OptimizationColumn({ result, baseAssembly })` (컴포넌트)
 결과 화면의 컬럼 하나(예: "-O2" 박스)를 그리는 컴포넌트.
-- 헤더에 레벨 이름(`-O0`), 바이너리(오브젝트) 크기, 컴파일 시간(ms) 표시
+- 헤더에 레벨 이름(`-O0`) + `InfoTooltip`, 바이너리(오브젝트) 크기, 컴파일 시간(ms) 표시
 - O0이 아니고 컴파일에 성공했으면 `diffLines()`로 `(+added / -removed vs O0)` 배지를 헤더에 추가
-- 컴파일 실패 시 `errorMessage`(clang stderr)를 빨간 글씨로 표시
+- 컴파일 실패 시 헤더에 빨간 "컴파일 실패" 배지를 띄우고, 본문에는
+  "⚠ clang이 이 코드를 컴파일하지 못했습니다" 안내와 함께 `errorMessage`(정리된 clang stderr)를 표시
 
 ### `App()` (최상위 컴포넌트)
 페이지 전체를 구성하는 루트 컴포넌트. 상태 4개를 관리:
@@ -54,7 +62,8 @@
 #### `handleCompare()` (내부 함수, "비교하기" 버튼의 onClick)
 1. `loading = true`, 이전 `results`/`error` 초기화
 2. `POST /api/compile`로 `{ code }`를 JSON으로 전송
-3. 응답이 실패(`!res.ok`)면 에러 바디를 파싱해 메시지를 뽑고, 없으면 HTTP 상태코드로 대체 메시지 생성
+3. 응답이 실패(`!res.ok`)면 에러 바디(`{ message }`, 백엔드의 `GlobalExceptionHandler`가 내려줌)를 파싱해
+   메시지를 뽑고, 없으면 HTTP 상태코드로 대체 메시지 생성
 4. 성공하면 `setResults(data)`
 5. `finally`에서 `loading = false` (성공/실패 모두)
 
