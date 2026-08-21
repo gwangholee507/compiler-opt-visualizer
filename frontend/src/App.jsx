@@ -90,7 +90,7 @@ function OptimizationColumn({ result, baseAssembly }) {
           -{result.level}
           <InfoTooltip text={OPTIMIZATION_INFO[result.level]} />
         </h3>
-        {result.success && (
+        {result.success ? (
           <span className="opt-meta">
             {formatBytes(result.binarySizeBytes)} · {result.compileTimeMs}ms
             {diffSummary && (
@@ -100,6 +100,8 @@ function OptimizationColumn({ result, baseAssembly }) {
               </span>
             )}
           </span>
+        ) : (
+          <span className="opt-meta error-badge">컴파일 실패</span>
         )}
       </div>
       {result.success ? (
@@ -108,7 +110,10 @@ function OptimizationColumn({ result, baseAssembly }) {
           baseAssembly={isBaseline ? null : baseAssembly}
         />
       ) : (
-        <pre className="asm-block error">{result.errorMessage}</pre>
+        <div className="error-box">
+          <p className="error-box-title">⚠ clang이 이 코드를 컴파일하지 못했습니다</p>
+          <pre className="asm-block error">{result.errorMessage}</pre>
+        </div>
       )}
     </div>
   )

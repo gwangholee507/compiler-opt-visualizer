@@ -173,3 +173,18 @@ header h1 {
   color: #ff6b6b;
   white-space: pre-wrap;
 }
+
+.error-badge {
+  color: #ff6b6b;
+  font-weight: 600;
+}
+
+.error-box-title {
+  margin: 0;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+  border-bottom: 1px solid rgba(255, 107, 107, 0.3);
+}

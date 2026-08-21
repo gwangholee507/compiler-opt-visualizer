@@ -66,7 +66,7 @@ public class CompilerService {
         long elapsed = System.currentTimeMillis() - start;
 
         if (asmResult.exitCode != 0) {
-            return OptimizationResult.failure(level, asmResult.stderr, elapsed);
+            return OptimizationResult.failure(level, sanitizeStderr(asmResult.stderr, sourceFile), elapsed);
         }
 
         // 2) 오브젝트 파일 생성 (크기 비교용): clang -c -O{n} input.c -o out.o
@@ -113,6 +113,15 @@ public class CompilerService {
             Thread.currentThread().interrupt();
             return new ProcessResult(-1, "프로세스 실행 실패: " + e.getMessage());
         }
+    }
+
+    /**
+     * clang의 에러 메시지에 그대로 찍히는 서버 임시 디렉터리의 절대 경로를
+     * 사용자에게 의미 없는 정보이므로 "input.c"로 바꿔서 보여준다.
+     */
+    private String sanitizeStderr(String stderr, Path sourceFile) {
+        if (stderr == null) return stderr;
+        return stderr.replace(sourceFile.toString(), "input.c");
     }
 
     private void cleanup(Path workDir) {
