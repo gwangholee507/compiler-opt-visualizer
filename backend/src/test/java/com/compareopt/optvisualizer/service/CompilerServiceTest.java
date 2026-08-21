@@ -38,7 +38,9 @@ class CompilerServiceTest {
                 .containsExactly("O0", "O1", "O2", "O3");
         assertThat(results).allSatisfy(r -> {
             assertThat(r.isSuccess()).isTrue();
-            assertThat(r.getAssembly()).contains("_square");
+            // macOS(Mach-O)는 심볼 앞에 '_'가 붙지만(_square) Linux(ELF)는 안 붙는다(square).
+            // 플랫폼에 상관없이 통과해야 하므로 언더스코어 없는 쪽으로 검증한다.
+            assertThat(r.getAssembly()).contains("square");
             assertThat(r.getBinarySizeBytes()).isGreaterThan(0);
         });
     }
