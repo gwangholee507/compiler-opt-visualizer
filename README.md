@@ -1,5 +1,7 @@
 # 컴파일러 최적화 옵션 비교기
 
+[![CI](https://github.com/gwangholee507/compiler-opt-visualizer/actions/workflows/ci.yml/badge.svg)](https://github.com/gwangholee507/compiler-opt-visualizer/actions/workflows/ci.yml)
+
 C 코드를 clang의 `-O0`~`-O3` 최적화 레벨로 각각 컴파일해서
 어셈블리, 오브젝트 파일 크기, 컴파일 시간을 나란히 비교해보는 웹앱.
 
