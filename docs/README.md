@@ -11,6 +11,8 @@
 | [architecture.md](./architecture.md) | 전체 흐름도 — 요청이 프론트엔드에서 백엔드까지 어떻게 흘러가는지 |
 | [backend.md](./backend.md) | Spring Boot 백엔드의 클래스/함수별 설명 |
 | [frontend.md](./frontend.md) | React 프론트엔드의 컴포넌트/함수별 설명 |
+| [branching-strategy.md](./branching-strategy.md) | Git 브랜치 전략 (GitHub Flow) — 브랜치 이름 규칙, PR/머지 규칙 |
+| [commit-convention.md](./commit-convention.md) | 커밋 메시지 규칙 (Conventional Commits) |
 
 ## 코드가 바뀌면?
 
