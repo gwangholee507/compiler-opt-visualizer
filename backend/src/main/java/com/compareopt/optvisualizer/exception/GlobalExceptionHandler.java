@@ -28,6 +28,12 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(new ErrorResponse(message));
     }
 
+    /** 존재하지 않거나 서버에 설치되지 않은 컴파일러를 요청한 경우 (CompilerRegistry.resolve()) */
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException e) {
+        return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+    }
+
     /** 그 외 예상치 못한 서버 오류 (예: clang 실행 파일을 찾을 수 없음 등) */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception e) {

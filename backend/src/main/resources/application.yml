@@ -2,8 +2,19 @@ server:
   port: 8080
 
 compiler:
-  # macOS는 Xcode Command Line Tools의 clang을 그대로 사용
-  path: clang
+  # 프론트엔드가 선택할 수 있는 컴파일러 목록.
+  # candidates는 순서대로 시도해서 서버에서 실제로 실행되는 첫 번째 이름을 사용한다
+  # (예: Homebrew GCC는 "gcc-16"처럼 버전이 붙어 설치되므로 여러 버전을 후보로 나열).
+  options:
+    - id: clang
+      label: "Clang (LLVM)"
+      candidates: [clang]
+    - id: gcc
+      label: "GNU GCC"
+      # macOS 기본 "gcc"는 사실 Apple clang의 별칭이지만, CompilerRegistry가 버전 출력에서
+      # "clang"이 보이면 걸러내므로 bare "gcc"를 후보 맨 끝에 둬도 안전하다
+      # (Homebrew GCC 버전이 바뀌거나 Ubuntu 기본 gcc 버전이 달라져도 이 후보로 커버됨).
+      candidates: [gcc-16, gcc-15, gcc-14, gcc-13, gcc-12, gcc]
 
 logging:
   level:

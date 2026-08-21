@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import './App.css'
 import { diffLines } from './diff'
 
@@ -29,6 +29,12 @@ function formatBytes(bytes) {
   if (bytes == null) return '-'
   if (bytes < 1024) return `${bytes} B`
   return `${(bytes / 1024).toFixed(1)} KB`
+}
+
+function formatMs(ms) {
+  if (ms == null) return '-'
+  if (ms < 1) return `${(ms * 1000).toFixed(0)}µs`
+  return `${ms.toFixed(2)}ms`
 }
 
 function InfoTooltip({ text }) {
@@ -99,6 +105,15 @@ function OptimizationColumn({ result, baseAssembly }) {
                 (+{diffSummary.addedCount} / -{diffSummary.removedCount} vs O0)
               </span>
             )}
+            {result.executionTimeMs != null && (
+              <span className="exec-badge"> · ⏱ 실행 {formatMs(result.executionTimeMs)}</span>
+            )}
+            {result.executionTimeMs == null && result.executionError && (
+              <span className="exec-badge exec-badge-muted" title={result.executionError}>
+                {' '}
+                · ⏱ 실행 불가
+              </span>
+            )}
           </span>
         ) : (
           <span className="opt-meta error-badge">컴파일 실패</span>
@@ -111,7 +126,7 @@ function OptimizationColumn({ result, baseAssembly }) {
         />
       ) : (
         <div className="error-box">
-          <p className="error-box-title">⚠ clang이 이 코드를 컴파일하지 못했습니다</p>
+          <p className="error-box-title">⚠ {result.compilerLabel || '컴파일러'}가 이 코드를 컴파일하지 못했습니다</p>
           <pre className="asm-block error">{result.errorMessage}</pre>
         </div>
       )}
@@ -125,6 +140,21 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
+  const [compilers, setCompilers] = useState([])
+  const [selectedCompiler, setSelectedCompiler] = useState('clang')
+  const [runBenchmark, setRunBenchmark] = useState(false)
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/compilers`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        setCompilers(data)
+        const firstAvailable = data.find((c) => c.available)
+        if (firstAvailable) setSelectedCompiler(firstAvailable.id)
+      })
+      .catch(() => setCompilers([]))
+  }, [])
+
   async function handleCompare() {
     setLoading(true)
     setError(null)
@@ -133,7 +163,7 @@ function App() {
       const res = await fetch(`${API_BASE}/api/compile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code, compiler: selectedCompiler, runBenchmark }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => null)
@@ -164,6 +194,35 @@ function App() {
           onChange={(e) => setCode(e.target.value)}
           spellCheck={false}
         />
+
+        <div className="controls-row">
+          <label className="compiler-select">
+            컴파일러
+            <select
+              value={selectedCompiler}
+              onChange={(e) => setSelectedCompiler(e.target.value)}
+            >
+              {compilers.length === 0 && <option value="clang">Clang (LLVM)</option>}
+              {compilers.map((c) => (
+                <option key={c.id} value={c.id} disabled={!c.available}>
+                  {c.label}
+                  {!c.available ? ' (서버에 설치되지 않음)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="benchmark-toggle">
+            <input
+              type="checkbox"
+              checked={runBenchmark}
+              onChange={(e) => setRunBenchmark(e.target.checked)}
+            />
+            실행 시간 측정
+            <InfoTooltip text="O0~O3 각각을 실제로 링크하고 서버에서 여러 번 실행해서 걸린 시간을 잽니다. main() 함수가 있는 코드에서만 동작하며, 서버가 사용자 코드를 직접 실행하는 기능이라 기본값은 꺼져 있습니다." />
+          </label>
+        </div>
+
         <button onClick={handleCompare} disabled={loading}>
           {loading ? '컴파일 중...' : '비교하기'}
         </button>
@@ -171,14 +230,19 @@ function App() {
       </section>
 
       {results && (
-        <section className="results-section">
-          {(() => {
-            const base = results.find((r) => r.level === 'O0')
-            const baseAssembly = base?.success ? base.assembly : null
-            return results.map((r) => (
-              <OptimizationColumn key={r.level} result={r} baseAssembly={baseAssembly} />
-            ))
-          })()}
+        <section className="results-section-wrap">
+          <p className="results-meta">
+            {results[0]?.compilerLabel || selectedCompiler} 기준 비교 결과
+          </p>
+          <div className="results-section">
+            {(() => {
+              const base = results.find((r) => r.level === 'O0')
+              const baseAssembly = base?.success ? base.assembly : null
+              return results.map((r) => (
+                <OptimizationColumn key={r.level} result={r} baseAssembly={baseAssembly} />
+              ))
+            })()}
+          </div>
         </section>
       )}
     </div>
