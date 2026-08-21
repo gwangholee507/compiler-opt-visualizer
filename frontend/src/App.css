@@ -95,6 +95,11 @@ header h1 {
   color: #999;
 }
 
+.diff-badge {
+  color: #7ee787;
+  font-weight: 500;
+}
+
 .asm-block {
   margin: 0;
   padding: 0.9rem;
@@ -105,6 +110,19 @@ header h1 {
   background: #141414;
   color: #ccc;
   white-space: pre;
+}
+
+.asm-line {
+  white-space: pre;
+  padding: 0 0.25rem;
+  margin: 0 -0.25rem;
+}
+
+/* O0 대비 새로 생기거나 바뀐 줄: 초록색으로 강조 */
+.asm-line.diff-added {
+  background: rgba(46, 160, 67, 0.25);
+  color: #7ee787;
+  border-radius: 3px;
 }
 
 .asm-block.error {

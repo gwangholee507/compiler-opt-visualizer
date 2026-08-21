@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import './App.css'
+import { diffLines } from './diff'
 
 const DEFAULT_CODE = `int square(int x) {
     return x * x;
@@ -22,7 +23,45 @@ function formatBytes(bytes) {
   return `${(bytes / 1024).toFixed(1)} KB`
 }
 
-function OptimizationColumn({ result }) {
+function AssemblyView({ assembly, baseAssembly }) {
+  const lines = assembly.split('\n')
+
+  // 기준(O0)이 없거나 자기 자신이 기준이면 그냥 평문으로 표시
+  if (!baseAssembly) {
+    return (
+      <pre className="asm-block">
+        {lines.map((line, idx) => (
+          <div key={idx} className="asm-line">
+            {line}
+          </div>
+        ))}
+      </pre>
+    )
+  }
+
+  const { lineStates } = diffLines(baseAssembly.split('\n'), lines)
+
+  return (
+    <pre className="asm-block">
+      {lines.map((line, idx) => (
+        <div
+          key={idx}
+          className={lineStates[idx] === 'added' ? 'asm-line diff-added' : 'asm-line'}
+        >
+          {line}
+        </div>
+      ))}
+    </pre>
+  )
+}
+
+function OptimizationColumn({ result, baseAssembly }) {
+  const isBaseline = result.level === 'O0'
+  const diffSummary =
+    !isBaseline && result.success && baseAssembly
+      ? diffLines(baseAssembly.split('\n'), result.assembly.split('\n'))
+      : null
+
   return (
     <div className="opt-column">
       <div className="opt-header">
@@ -30,11 +69,20 @@ function OptimizationColumn({ result }) {
         {result.success && (
           <span className="opt-meta">
             {formatBytes(result.binarySizeBytes)} · {result.compileTimeMs}ms
+            {diffSummary && (
+              <span className="diff-badge">
+                {' '}
+                (+{diffSummary.addedCount} / -{diffSummary.removedCount} vs O0)
+              </span>
+            )}
           </span>
         )}
       </div>
       {result.success ? (
-        <pre className="asm-block">{result.assembly}</pre>
+        <AssemblyView
+          assembly={result.assembly}
+          baseAssembly={isBaseline ? null : baseAssembly}
+        />
       ) : (
         <pre className="asm-block error">{result.errorMessage}</pre>
       )}
@@ -95,9 +143,13 @@ function App() {
 
       {results && (
         <section className="results-section">
-          {results.map((r) => (
-            <OptimizationColumn key={r.level} result={r} />
-          ))}
+          {(() => {
+            const base = results.find((r) => r.level === 'O0')
+            const baseAssembly = base?.success ? base.assembly : null
+            return results.map((r) => (
+              <OptimizationColumn key={r.level} result={r} baseAssembly={baseAssembly} />
+            ))
+          })()}
         </section>
       )}
     </div>
