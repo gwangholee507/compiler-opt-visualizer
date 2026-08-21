@@ -1,0 +1,10 @@
+server:
+  port: 8080
+
+compiler:
+  # macOS는 Xcode Command Line Tools의 clang을 그대로 사용
+  path: clang
+
+logging:
+  level:
+    com.compareopt.optvisualizer: INFO
