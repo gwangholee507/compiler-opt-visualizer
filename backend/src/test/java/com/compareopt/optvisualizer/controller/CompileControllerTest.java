@@ -1,6 +1,7 @@
 package com.compareopt.optvisualizer.controller;
 
 import com.compareopt.optvisualizer.dto.OptimizationResult;
+import com.compareopt.optvisualizer.service.CompilerRegistry;
 import com.compareopt.optvisualizer.service.CompilerService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,6 +11,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -29,9 +31,12 @@ class CompileControllerTest {
     @MockBean
     private CompilerService compilerService;
 
+    @MockBean
+    private CompilerRegistry compilerRegistry;
+
     @Test
     void 정상적인_요청은_200과_결과_리스트를_반환한다() throws Exception {
-        when(compilerService.compareOptimizationLevels(anyString()))
+        when(compilerService.compareOptimizationLevels(anyString(), anyString(), anyBoolean()))
                 .thenReturn(List.of(OptimizationResult.success("O0", "ret", 100, 10)));
 
         mockMvc.perform(post("/api/compile")

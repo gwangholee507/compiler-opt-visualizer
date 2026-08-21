@@ -39,6 +39,12 @@
 - 1024 미만이면 `"712 B"`처럼 그대로
 - 그 이상이면 `"0.6 KB"`처럼 소수점 1자리 KB로 변환
 
+### `formatMs(ms) : string`
+밀리초 숫자(`OptimizationResult.executionTimeMs`)를 사람이 읽기 좋은 문자열로 변환.
+- `null`이면 `'-'`
+- 1ms 미만이면 마이크로초로 바꿔 `"420µs"`처럼 표시 (짧은 함수는 실행 시간이 1ms를 안 넘는 경우가 많아서)
+- 그 이상이면 `"3.42ms"`처럼 소수점 2자리 ms로 표시
+
 ### `AssemblyView({ assembly, baseAssembly })` (컴포넌트)
 어셈블리 텍스트를 줄 단위 `<div>`로 쪼개서 렌더링.
 - `baseAssembly`가 없으면(= O0 자신이거나 기준이 없는 경우) 그냥 평문으로 표시
@@ -49,27 +55,41 @@
 결과 화면의 컬럼 하나(예: "-O2" 박스)를 그리는 컴포넌트.
 - 헤더에 레벨 이름(`-O0`) + `InfoTooltip`, 바이너리(오브젝트) 크기, 컴파일 시간(ms) 표시
 - O0이 아니고 컴파일에 성공했으면 `diffLines()`로 `(+added / -removed vs O0)` 배지를 헤더에 추가
+- `result.executionTimeMs`가 있으면(= `runBenchmark=true`였고 측정 성공) `⏱ 실행 {formatMs(...)}` 배지 추가
+- 측정을 시도했지만 실행 파일을 못 만들었으면(주로 `main()` 없음) `executionError`를 툴팁으로 붙인
+  회색 "⏱ 실행 불가" 배지를 대신 표시 — 컴파일 자체는 성공이므로 에러로 취급하지 않음
 - 컴파일 실패 시 헤더에 빨간 "컴파일 실패" 배지를 띄우고, 본문에는
-  "⚠ clang이 이 코드를 컴파일하지 못했습니다" 안내와 함께 `errorMessage`(정리된 clang stderr)를 표시
+  `"⚠ {compilerLabel}가 이 코드를 컴파일하지 못했습니다"` 안내와 함께 `errorMessage`(정리된 컴파일러 stderr)를 표시
 
 ### `App()` (최상위 컴포넌트)
-페이지 전체를 구성하는 루트 컴포넌트. 상태 4개를 관리:
+페이지 전체를 구성하는 루트 컴포넌트. 상태 7개를 관리:
 - `code`: 텍스트 에디터에 입력된 C 코드
 - `results`: 백엔드 응답(`OptimizationResult` 배열), 아직 요청 전이면 `null`
 - `loading`: 요청 진행 중 여부 (버튼 비활성화 + "컴파일 중..." 텍스트에 사용)
 - `error`: 요청 실패 시 에러 메시지
+- `compilers`: `GET /api/compilers` 응답(`{id, label, available}` 배열) — 드롭다운 옵션 목록
+- `selectedCompiler`: 드롭다운에서 선택된 컴파일러 id (기본 `'clang'`)
+- `runBenchmark`: "실행 시간 측정" 체크박스 상태 (기본 `false`, 옵트인)
+
+#### `useEffect` (마운트 시 1회)
+`GET /api/compilers`를 호출해 `compilers`를 채우고, 사용 가능한(`available: true`) 첫 컴파일러를
+`selectedCompiler`로 자동 선택한다. 요청이 실패해도 조용히 빈 배열로 두고(드롭다운에 "Clang (LLVM)"
+기본값만 남음) 화면이 깨지지 않게 한다.
 
 #### `handleCompare()` (내부 함수, "비교하기" 버튼의 onClick)
 1. `loading = true`, 이전 `results`/`error` 초기화
-2. `POST /api/compile`로 `{ code }`를 JSON으로 전송
+2. `POST /api/compile`로 `{ code, compiler: selectedCompiler, runBenchmark }`를 JSON으로 전송
 3. 응답이 실패(`!res.ok`)면 에러 바디(`{ message }`, 백엔드의 `GlobalExceptionHandler`가 내려줌)를 파싱해
    메시지를 뽑고, 없으면 HTTP 상태코드로 대체 메시지 생성
 4. 성공하면 `setResults(data)`
 5. `finally`에서 `loading = false` (성공/실패 모두)
 
 #### 렌더링 흐름
-1. 상단에 제목/설명, 코드 에디터(`<textarea>`), "비교하기" 버튼, 에러 메시지(있으면)
-2. `results`가 있으면:
+1. 상단에 제목/설명, 코드 에디터(`<textarea>`)
+2. 컴파일러 선택 `<select>`(사용 불가능한 항목은 `disabled`) + "실행 시간 측정" 체크박스(+ 설명 툴팁)
+3. "비교하기" 버튼, 에러 메시지(있으면)
+4. `results`가 있으면:
+   - 어떤 컴파일러 기준 결과인지 안내 문구(`results[0].compilerLabel`) 표시
    - `results`에서 `level === 'O0'`인 항목을 찾아 `baseAssembly`로 지정 (O0이 실패했으면 `null`)
    - 각 결과를 `OptimizationColumn`으로 렌더링하며 `baseAssembly`를 함께 전달
 

@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/gwangholee507/compiler-opt-visualizer/actions/workflows/ci.yml/badge.svg)](https://github.com/gwangholee507/compiler-opt-visualizer/actions/workflows/ci.yml)
 
-C 코드를 입력하면 clang 컴파일러의 최적화 레벨(`-O0`~`-O3`)을 각각 적용해서
-**어셈블리 코드가 어떻게 달라지는지, 컴파일된 코드 크기와 컴파일 시간이 얼마나
-차이 나는지**를 네 개 열로 나란히 보여주는 웹앱입니다.
+C 코드를 입력하면 **선택한 컴파일러**(Clang 또는 GNU GCC)의 최적화 레벨(`-O0`~`-O3`)을 각각 적용해서
+**어셈블리 코드가 어떻게 달라지는지, 컴파일된 코드 크기와 컴파일 시간, (옵션으로) 실제 실행 시간이
+얼마나 차이 나는지**를 네 개 열로 나란히 보여주는 웹앱입니다.
 
 "컴파일러 최적화가 대체 뭘 하는 거지?"를 직접 눈으로 확인해보기 위한 학습용 도구입니다.
 
@@ -13,7 +13,9 @@ C 코드를 입력하면 clang 컴파일러의 최적화 레벨(`-O0`~`-O3`)을 
 - `-O0` 대비 `-O1`~`-O3`에서 바뀐 어셈블리 줄이 초록색으로 강조되어, 최적화가
   코드의 어느 부분을 어떻게 바꿨는지 바로 눈에 들어옵니다.
 - 각 레벨별 **오브젝트 파일 크기**와 **컴파일 시간**을 함께 비교합니다.
-- 문법 오류가 있는 코드를 넣으면 clang의 원본 에러 메시지를 그대로 보여줍니다.
+- **컴파일러를 Clang/GCC 중에서 골라서** 같은 코드를 서로 다른 컴파일러가 어떻게 최적화하는지 비교할 수 있습니다.
+- (옵션) **실행 시간 측정**을 켜면 `main()`이 있는 코드를 실제로 링크·실행해서 O0~O3 간 실행 속도 차이까지 볼 수 있습니다.
+- 문법 오류가 있는 코드를 넣으면 컴파일러의 원본 에러 메시지를 그대로 보여줍니다.
 
 예를 들어 `square(int x) { return x * x; }` 같은 함수는 `-O0`에서는 스택에 값을
 저장했다가 다시 읽어 곱하는 비효율적인 어셈블리가 나오지만, `-O1`부터는
@@ -23,9 +25,9 @@ C 코드를 입력하면 clang 컴파일러의 최적화 레벨(`-O0`~`-O3`)을 
 
 | 영역 | 구성 |
 |---|---|
-| Backend | Spring Boot (Java 17), `clang`을 서브프로세스로 호출해 컴파일 수행 |
+| Backend | Spring Boot (Java 17), `clang`/`gcc`를 서브프로세스로 호출해 컴파일·실행 수행 |
 | Frontend | React + Vite |
-| Compiler | 로컬 macOS의 clang (Xcode Command Line Tools) |
+| Compiler | 로컬 macOS의 clang (Xcode Command Line Tools) + 선택적으로 Homebrew GCC (`brew install gcc`) |
 | CI | GitHub Actions ([워크플로 정의](.github/workflows/ci.yml)) |
 
 ## 구조

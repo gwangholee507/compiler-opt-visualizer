@@ -40,6 +40,58 @@ header h1 {
   line-height: 1.5;
 }
 
+.controls-row {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.compiler-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #ccc;
+}
+
+.compiler-select select {
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid #444;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-size: 0.85rem;
+}
+
+.benchmark-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: #ccc;
+  cursor: pointer;
+}
+
+.benchmark-toggle input {
+  cursor: pointer;
+}
+
+.results-meta {
+  font-size: 0.8rem;
+  color: #999;
+  margin: 0 0 0.75rem;
+}
+
+.exec-badge {
+  color: #79b8ff;
+}
+
+.exec-badge-muted {
+  color: #777;
+  cursor: help;
+}
+
 .editor-section button {
   align-self: flex-start;
   padding: 0.6rem 1.4rem;
