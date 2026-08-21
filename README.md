@@ -6,7 +6,7 @@ C 코드를 clang의 `-O0`~`-O3` 최적화 레벨로 각각 컴파일해서
 ## 구조
 - `backend/` — Spring Boot (Java). `clang`을 서브프로세스로 호출해 컴파일 수행
 - `frontend/` — React (Vite). 코드 입력 + 결과 비교 UI
-- `docs/` — 함수/모듈별 설명서 ([docs/README.md](docs/README.md)부터 시작)
+- `docs/` — 문서 모음 ([docs/README.md](docs/README.md)부터 시작). 처음이면 [사용자 가이드](docs/user-guide.md)부터 읽어보세요.
 
 ## 실행 방법
 
