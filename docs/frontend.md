@@ -1,0 +1,72 @@
+# 프론트엔드 (React + Vite)
+
+## `diff.js`
+**파일**: [`frontend/src/diff.js`](../frontend/src/diff.js)
+
+외부 라이브러리 없이 직접 구현한 줄 단위 diff 유틸리티.
+
+### `diffLines(base, target) : { lineStates, addedCount, removedCount }`
+- **입력**: `base`(기준이 되는 줄 배열, 보통 O0 어셈블리), `target`(비교 대상 줄 배열)
+- **알고리즘**: LCS(최장 공통 부분 수열)를 DP 테이블(`dp[i][j]`)로 계산한 뒤, 뒤에서부터 되짚어가며(backtrack)
+  - `base[i] === target[j]`면 `'same'`
+  - 아니고 `base`에서 삭제하는 게 유리하면(`dp[i+1][j] >= dp[i][j+1]`) `removedCount` 증가
+  - 그 외에는 `target`에 새로 추가된 줄이므로 `'added'`
+- **출력**:
+  - `lineStates`: `target`의 각 줄에 대응하는 `'same' | 'added'` 배열 (인덱스가 `target` 줄 번호와 1:1 대응)
+  - `addedCount`: `target`에만 있는(새로 생기거나 바뀐) 줄 수
+  - `removedCount`: `base`에만 있고 `target`에는 없는(사라진) 줄 수
+- **복잡도**: O(n·m) — 어셈블리가 보통 수백 줄 이내라 브라우저에서도 충분히 빠름
+
+---
+
+## `App.jsx`
+**파일**: [`frontend/src/App.jsx`](../frontend/src/App.jsx)
+
+### 상수
+- `DEFAULT_CODE`: 텍스트 에디터에 처음 채워지는 예시 C 코드 (`square`, `sum_loop`)
+- `API_BASE`: 백엔드 주소 (`http://localhost:8080`, 하드코딩됨 — 배포 시 환경변수로 분리 필요)
+
+### `formatBytes(bytes) : string`
+바이트 숫자를 사람이 읽기 좋은 문자열로 변환.
+- `null`이면 `'-'`
+- 1024 미만이면 `"712 B"`처럼 그대로
+- 그 이상이면 `"0.6 KB"`처럼 소수점 1자리 KB로 변환
+
+### `AssemblyView({ assembly, baseAssembly })` (컴포넌트)
+어셈블리 텍스트를 줄 단위 `<div>`로 쪼개서 렌더링.
+- `baseAssembly`가 없으면(= O0 자신이거나 기준이 없는 경우) 그냥 평문으로 표시
+- `baseAssembly`가 있으면 `diffLines()`로 각 줄이 `'added'`인지 계산해서, 새로 생긴/바뀐 줄에
+  `diff-added` CSS 클래스를 붙여 초록색으로 강조
+
+### `OptimizationColumn({ result, baseAssembly })` (컴포넌트)
+결과 화면의 컬럼 하나(예: "-O2" 박스)를 그리는 컴포넌트.
+- 헤더에 레벨 이름(`-O0`), 바이너리(오브젝트) 크기, 컴파일 시간(ms) 표시
+- O0이 아니고 컴파일에 성공했으면 `diffLines()`로 `(+added / -removed vs O0)` 배지를 헤더에 추가
+- 컴파일 실패 시 `errorMessage`(clang stderr)를 빨간 글씨로 표시
+
+### `App()` (최상위 컴포넌트)
+페이지 전체를 구성하는 루트 컴포넌트. 상태 4개를 관리:
+- `code`: 텍스트 에디터에 입력된 C 코드
+- `results`: 백엔드 응답(`OptimizationResult` 배열), 아직 요청 전이면 `null`
+- `loading`: 요청 진행 중 여부 (버튼 비활성화 + "컴파일 중..." 텍스트에 사용)
+- `error`: 요청 실패 시 에러 메시지
+
+#### `handleCompare()` (내부 함수, "비교하기" 버튼의 onClick)
+1. `loading = true`, 이전 `results`/`error` 초기화
+2. `POST /api/compile`로 `{ code }`를 JSON으로 전송
+3. 응답이 실패(`!res.ok`)면 에러 바디를 파싱해 메시지를 뽑고, 없으면 HTTP 상태코드로 대체 메시지 생성
+4. 성공하면 `setResults(data)`
+5. `finally`에서 `loading = false` (성공/실패 모두)
+
+#### 렌더링 흐름
+1. 상단에 제목/설명, 코드 에디터(`<textarea>`), "비교하기" 버튼, 에러 메시지(있으면)
+2. `results`가 있으면:
+   - `results`에서 `level === 'O0'`인 항목을 찾아 `baseAssembly`로 지정 (O0이 실패했으면 `null`)
+   - 각 결과를 `OptimizationColumn`으로 렌더링하며 `baseAssembly`를 함께 전달
+
+---
+
+## `main.jsx`
+**파일**: [`frontend/src/main.jsx`](../frontend/src/main.jsx)
+
+Vite 기본 진입점. `#root` DOM에 `<App />`을 `ReactDOM.createRoot()`로 마운트합니다. (Vite 템플릿 기본 생성 파일, 프로젝트 고유 로직 없음)
