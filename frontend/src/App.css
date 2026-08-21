@@ -88,6 +88,50 @@ header h1 {
 .opt-header h3 {
   margin: 0;
   font-size: 1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.info-tooltip {
+  position: relative;
+  display: inline-flex;
+  cursor: help;
+  outline: none;
+}
+
+.info-icon {
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.info-tooltip:hover .info-icon,
+.info-tooltip:focus .info-icon {
+  color: #aaa;
+}
+
+.tooltip-bubble {
+  display: none;
+  position: absolute;
+  top: 130%;
+  left: 0;
+  z-index: 10;
+  width: 240px;
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+  background: #2d2d2d;
+  border: 1px solid #444;
+  color: #ddd;
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: normal;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.info-tooltip:hover .tooltip-bubble,
+.info-tooltip:focus .tooltip-bubble {
+  display: block;
 }
 
 .opt-meta {

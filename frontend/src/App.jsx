@@ -17,10 +17,31 @@ int sum_loop(int n) {
 
 const API_BASE = 'http://localhost:8080'
 
+// 각 최적화 레벨이 실제로 뭘 하는지 초보자용으로 풀어쓴 설명
+const OPTIMIZATION_INFO = {
+  O0: '최적화 없음(기본값). 소스 코드와 어셈블리가 거의 한 줄씩 대응돼서 디버깅하기 가장 쉽지만, 실행 속도는 가장 느립니다.',
+  O1: '기본적인 최적화. 죽은 코드 제거, 간단한 상수 계산(상수 폴딩) 등 컴파일 시간을 크게 늘리지 않는 선에서 적용합니다.',
+  O2: '가장 널리 쓰이는 "권장" 수준. 함수 인라이닝, 루프 최적화, 명령어 재배치 등 대부분의 안전한 최적화를 적극적으로 적용합니다. 대부분의 릴리즈 빌드가 이 옵션을 씁니다.',
+  O3: 'O2에 루프 벡터화(SIMD) 등 더 공격적인 최적화를 추가합니다. 바이너리 크기가 커질 수 있고, 코드에 따라 O2보다 항상 빠른 것은 아닙니다.',
+}
+
 function formatBytes(bytes) {
   if (bytes == null) return '-'
   if (bytes < 1024) return `${bytes} B`
   return `${(bytes / 1024).toFixed(1)} KB`
+}
+
+function InfoTooltip({ text }) {
+  return (
+    <span className="info-tooltip" tabIndex={0}>
+      <span className="info-icon" aria-hidden="true">
+        ⓘ
+      </span>
+      <span className="tooltip-bubble" role="tooltip">
+        {text}
+      </span>
+    </span>
+  )
 }
 
 function AssemblyView({ assembly, baseAssembly }) {
@@ -65,7 +86,10 @@ function OptimizationColumn({ result, baseAssembly }) {
   return (
     <div className="opt-column">
       <div className="opt-header">
-        <h3>-{result.level}</h3>
+        <h3>
+          -{result.level}
+          <InfoTooltip text={OPTIMIZATION_INFO[result.level]} />
+        </h3>
         {result.success && (
           <span className="opt-meta">
             {formatBytes(result.binarySizeBytes)} · {result.compileTimeMs}ms
