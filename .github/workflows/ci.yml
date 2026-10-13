@@ -61,8 +61,15 @@ jobs:
       - name: Run tests
         run: ${{ matrix.mvnw }} -B test
 
-      - name: Build jar
-        run: ${{ matrix.mvnw }} -B -DskipTests package
+      # 사용자가 실제로 받게 되는 형태(프론트엔드까지 넣은 jar)를 만들어 본다.
+      # Node.js는 bundle 프로필이 직접 내려받으므로 setup-node가 필요 없다.
+      - name: Build runnable jar (with frontend)
+        run: ${{ matrix.mvnw }} -B -DskipTests -Pbundle package
+
+      # 만든 jar를 띄워서 서버 하나가 화면과 API를 모두 내보내는지 확인한다
+      - name: Smoke test the jar
+        shell: bash
+        run: bash ../.github/scripts/smoke-test.sh target/compiler-opt-visualizer-*.jar
 
   frontend-test:
     name: Frontend / ${{ matrix.os }}
