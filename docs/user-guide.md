@@ -23,20 +23,27 @@ C 코드를 입력하면, 선택한 컴파일러(**Clang** 또는 **GNU GCC**)�
 ## 2. 처음 실행하기
 
 ### 준비물
-- macOS (Xcode Command Line Tools에 포함된 `clang`을 사용합니다)
-- Java 17 이상, Maven (백엔드용)
-- Node.js, npm (프론트엔드용)
-- (선택) GNU GCC — `brew install gcc`로 설치하면 컴파일러 드롭다운에 "GNU GCC"도 뜨고 선택할 수
+
+macOS와 Linux에서 실행할 수 있습니다. Windows 네이티브 환경은 검증되지 않았으므로
+WSL2(Ubuntu)에서 Linux와 같은 방법으로 실행하는 것을 권장합니다.
+
+- `clang` — macOS는 Xcode Command Line Tools(`xcode-select --install`)에 포함되어 있고,
+  Ubuntu/Debian은 `sudo apt-get install clang`으로 설치합니다.
+- JDK 17 이상(17 권장), Maven (백엔드용)
+- Node.js 20.19 이상 또는 22.12 이상, npm (프론트엔드용)
+- (선택) GNU GCC — 설치하면 컴파일러 드롭다운에 "GNU GCC"도 뜨고 선택할 수
   있습니다. 설치 안 해도 앱은 정상 동작하며, 이 경우 드롭다운에는 Clang만 나옵니다.
+  macOS는 `brew install gcc`, Ubuntu/Debian은 `sudo apt-get install gcc`로 설치합니다.
   > ⚠ macOS 기본 `gcc` 명령은 사실 Apple clang의 별칭이라 진짜 GCC가 아닙니다. 서버가 자동으로
-  > 이를 걸러내므로, 진짜 GCC와 비교하려면 반드시 Homebrew로 설치해야 합니다.
+  > 이를 걸러내므로, macOS에서 진짜 GCC와 비교하려면 반드시 Homebrew로 설치해야 합니다.
 
 준비물이 설치되어 있는지 확인하려면:
 ```bash
 clang --version
 mvn --version
 node -v
-gcc-16 --version   # brew install gcc로 설치한 경우 (버전 번호는 설치 시점에 따라 다를 수 있음)
+gcc-16 --version   # macOS에서 brew install gcc로 설치한 경우 (버전 번호는 설치 시점에 따라 다를 수 있음)
+gcc --version      # Linux에서 GCC를 설치한 경우
 ```
 
 ### 백엔드 실행 (터미널 1)
