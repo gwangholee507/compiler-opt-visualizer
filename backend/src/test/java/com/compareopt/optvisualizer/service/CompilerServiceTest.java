@@ -2,9 +2,14 @@ package com.compareopt.optvisualizer.service;
 
 import com.compareopt.optvisualizer.config.CompilerProperties;
 import com.compareopt.optvisualizer.dto.OptimizationResult;
+import com.compareopt.optvisualizer.platform.ProcessRunner;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -16,7 +21,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * (mock 없이 순수 단위 테스트로 만들기엔 핵심 로직이 전부 "외부 프로세스를 어떻게 다루는가"라서
  *  실제 컴파일 결과를 검증하는 게 더 의미 있다고 판단함)
  *
- * 로컬(macOS)에 clang이 설치되어 있어야 통과한다. CI에서도 ubuntu-latest에 clang/gcc를 설치함.
+ * macOS/Linux/Windows 어디서든 clang이 설치되어 있어야 통과한다 (CI는 세 OS 모두에서 돌린다).
+ * 그래서 검증 내용도 특정 OS의 경로나 심볼 표기에 기대지 않도록 작성한다.
  * gcc 관련 테스트는 서버에 실제 GNU GCC가 없으면 (macOS의 gcc는 clang 별칭이라 CompilerRegistry가
  * 걸러냄) assumeTrue로 건너뛴다.
  */
@@ -39,8 +45,9 @@ class CompilerServiceTest {
         gcc.setCandidates(List.of("gcc-16", "gcc-15", "gcc-14", "gcc-13", "gcc-12", "gcc"));
 
         properties.setOptions(List.of(clang, gcc));
-        registry = new CompilerRegistry(properties);
-        compilerService = new CompilerService(registry);
+        ProcessRunner processRunner = new ProcessRunner();
+        registry = new CompilerRegistry(properties, processRunner);
+        compilerService = new CompilerService(registry, processRunner);
     }
 
     @Test
@@ -58,6 +65,8 @@ class CompilerServiceTest {
             // macOS(Mach-O)는 심볼 앞에 '_'가 붙지만(_square) Linux(ELF)는 안 붙는다(square).
             // 플랫폼에 상관없이 통과해야 하므로 언더스코어 없는 쪽으로 검증한다.
             assertThat(r.getAssembly()).contains("square");
+            // Windows의 컴파일러는 \r\n으로 쓰지만 응답에서는 \n으로 통일되어야 한다.
+            assertThat(r.getAssembly()).doesNotContain("\r");
             assertThat(r.getBinarySizeBytes()).isGreaterThan(0);
             assertThat(r.getExecutionTimeMs()).isNull(); // runBenchmark=false
         });
@@ -92,8 +101,24 @@ class CompilerServiceTest {
         assertThat(results).allSatisfy(r -> {
             assertThat(r.isSuccess()).isFalse();
             assertThat(r.getErrorMessage()).contains("input.c");
-            assertThat(r.getErrorMessage()).doesNotContain("/var/folders");
-            assertThat(r.getErrorMessage()).doesNotContain("/tmp");
+            // 임시 작업 디렉터리 이름(opt-visualizer-XXXX)이 안 보이면 절대 경로가 노출되지 않은 것.
+            // OS마다 임시 디렉터리 위치(/var/folders, /tmp, C:\Users\...\Temp)가 달라서 이름으로 확인한다.
+            assertThat(r.getErrorMessage()).doesNotContain("opt-visualizer-");
+        });
+    }
+
+    @Test
+    void 경고가_아주_많이_출력돼도_컴파일이_멈추지_않는다() {
+        // 컴파일러 출력을 파이프로 받으면 버퍼(수 KB~수십 KB)가 찼을 때 컴파일러가 멈춰서
+        // 정상 코드가 "시간 초과"로 실패한다. 버퍼를 확실히 넘기는 양의 경고를 내보내 확인한다.
+        String code = "#warning this line only exists to produce compiler output\n".repeat(1000)
+                + "int square(int x) { return x * x; }\n";
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(code, "clang", false);
+
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.isSuccess()).isTrue();
+            assertThat(r.getAssembly()).contains("square");
         });
     }
 
@@ -130,7 +155,7 @@ class CompilerServiceTest {
         assertThat(results).allSatisfy(r -> {
             assertThat(r.isSuccess()).isTrue(); // 컴파일/어셈블리 자체는 성공
             assertThat(r.getExecutionTimeMs()).isNull();
-            assertThat(r.getExecutionError()).isNotNull(); // 링크 실패 사유가 채워짐
+            assertThat(r.getExecutionError()).contains("실행 파일을 만들 수 없습니다"); // 링크 실패 사유가 채워짐
         });
     }
 
@@ -148,11 +173,60 @@ class CompilerServiceTest {
         });
     }
 
+    @Test
+    void PATH의_이름이_아니라_절대_경로로_지정한_컴파일러로도_컴파일과_실행이_된다() {
+        // OPTVIS_CLANG 환경 변수나 Windows의 기본 설치 위치(C:\msys64\..., C:\Program Files\LLVM\...)처럼
+        // 절대 경로로 컴파일러를 찾은 경우의 경로를 검증한다 (경로에 공백이 있어도 동작해야 함).
+        Path clangPath = findOnPath("clang");
+        assumeTrue(clangPath != null);
+
+        CompilerProperties.Option clang = new CompilerProperties.Option();
+        clang.setId("clang");
+        clang.setLabel("Clang (LLVM)");
+        clang.setCandidates(List.of(clangPath.toString()));
+        CompilerProperties properties = new CompilerProperties();
+        properties.setOptions(List.of(clang));
+        ProcessRunner processRunner = new ProcessRunner();
+        CompilerRegistry absoluteRegistry = new CompilerRegistry(properties, processRunner);
+        CompilerService service = new CompilerService(absoluteRegistry, processRunner);
+
+        assertThat(absoluteRegistry.resolve("clang").toolDir()).isEqualTo(clangPath.getParent());
+
+        String code = """
+                int add(int a, int b) { return a + b; }
+                int main(void) { return add(1, 2) - 3; }
+                """;
+        List<OptimizationResult> results = service.compareOptimizationLevels(code, "clang", true);
+
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.isSuccess()).isTrue();
+            assertThat(r.getExecutionTimeMs()).isNotNull();
+        });
+    }
+
     private boolean isAvailable(String id) {
         try {
             return registry.resolve(id).available();
         } catch (IllegalArgumentException e) {
             return false;
         }
+    }
+
+    /** PATH에서 실행 파일의 절대 경로를 찾는다 (Windows는 .exe가 붙은 이름도 확인). 없으면 null. */
+    private static Path findOnPath(String name) {
+        String pathEnv = System.getenv("PATH");
+        if (pathEnv == null) return null;
+        for (String dir : pathEnv.split(File.pathSeparator)) {
+            for (String fileName : List.of(name, name + ".exe")) {
+                try {
+                    Path candidate = Path.of(dir, fileName);
+                    if (Files.isRegularFile(candidate) && candidate.isAbsolute()) {
+                        return candidate;
+                    }
+                } catch (InvalidPathException ignored) {
+                }
+            }
+        }
+        return null;
     }
 }
