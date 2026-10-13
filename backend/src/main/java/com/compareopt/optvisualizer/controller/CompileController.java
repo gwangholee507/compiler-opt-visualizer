@@ -6,7 +6,6 @@ import com.compareopt.optvisualizer.dto.OptimizationResult;
 import com.compareopt.optvisualizer.service.CompilerRegistry;
 import com.compareopt.optvisualizer.service.CompilerService;
 import jakarta.validation.Valid;
-import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -14,8 +13,13 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+/**
+ * 화면(프론트엔드)은 항상 이 서버와 같은 출처에서 /api 를 호출한다 — 배포된 jar에서는 이 서버가
+ * 화면도 함께 내보내고, 개발 중에는 Vite 개발 서버가 /api 요청을 이쪽으로 넘겨준다.
+ * 그래서 CORS 허용 설정(@CrossOrigin)을 일부러 두지 않는다: 이 API는 받은 코드를 컴파일하고
+ * 실행까지 하므로, 사용자가 방문한 다른 웹사이트의 스크립트가 이 서버를 호출할 수 없어야 한다.
+ */
 @RestController
-@CrossOrigin(origins = "http://localhost:5173") // Vite 개발 서버
 public class CompileController {
 
     private final CompilerService compilerService;
