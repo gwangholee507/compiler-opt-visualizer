@@ -12,6 +12,12 @@
       "runtimeExecutable": "mvn",
       "runtimeArgs": ["-f", "backend/pom.xml", "spring-boot:run"],
       "port": 8080
+    },
+    {
+      "name": "app",
+      "runtimeExecutable": "mvn",
+      "runtimeArgs": ["-f", "backend/pom.xml", "-Pbundle", "spring-boot:run"],
+      "port": 8080
     }
   ]
 }
