@@ -1,6 +1,11 @@
 name: CI
 
 # main에 push되거나, main을 대상으로 하는 PR이 열릴 때마다 백엔드/프론트엔드를 각각 빌드+테스트한다.
+# 이 프로젝트는 사용자가 자기 PC에 설치해서 쓰는 프로그램이라, 지원하는 세 OS 모두에서 돌린다.
+#
+# main 브랜치 보호 규칙의 필수 체크는 "Backend (Spring Boot)", "Frontend (React + Vite)" 두 이름에 걸려 있다.
+# OS별 잡은 이름이 OS마다 달라지므로, 그 결과를 모아 원래 이름으로 보고하는 잡을 맨 끝에 따로 둔다
+# (이 두 잡의 이름을 바꾸면 PR이 머지되지 않으니 브랜치 보호 규칙과 함께 바꿔야 한다).
 on:
   push:
     branches: [main]
@@ -8,9 +13,21 @@ on:
     branches: [main]
 
 jobs:
-  backend:
-    name: Backend (Spring Boot)
-    runs-on: ubuntu-latest
+  backend-test:
+    name: Backend / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # 한 OS에서 실패해도 다른 OS의 결과는 끝까지 확인한다 (OS별 문제를 한 번에 파악하기 위함)
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            mvnw: ./mvnw
+          - os: macos-latest
+            mvnw: ./mvnw
+          # Windows 사용자가 실제로 쓰게 되는 mvnw.cmd로 실행한다
+          - os: windows-latest
+            mvnw: .\mvnw.cmd
     defaults:
       run:
         working-directory: backend
@@ -26,21 +43,34 @@ jobs:
           cache: maven
           cache-dependency-path: backend/pom.xml
 
-      # CompilerService가 clang/gcc를 서브프로세스로 호출하므로 CI 러너에도 설치해야 한다
-      - name: Install clang and gcc
+      # CompilerService가 clang/gcc를 서브프로세스로 호출하므로 CI 러너에도 있어야 한다.
+      # macOS(Xcode clang + Homebrew GCC)와 Windows(LLVM + MinGW-w64) 러너에는 미리 설치되어 있다.
+      - name: Install clang and gcc (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y clang gcc
 
+      # 테스트가 실패했을 때 "컴파일러가 없어서"인지 바로 알 수 있도록 로그에 남긴다
+      - name: Show compilers on PATH
+        shell: bash
+        run: |
+          clang --version || echo "clang: PATH에 없음"
+          gcc --version || echo "gcc: PATH에 없음"
+
       - name: Run tests
-        run: mvn -B test
+        run: ${{ matrix.mvnw }} -B test
 
       - name: Build jar
-        run: mvn -B -DskipTests package
+        run: ${{ matrix.mvnw }} -B -DskipTests package
 
-  frontend:
-    name: Frontend (React + Vite)
-    runs-on: ubuntu-latest
+  frontend-test:
+    name: Frontend / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     defaults:
       run:
         working-directory: frontend
@@ -65,3 +95,24 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # ---- 필수 체크용 집계 잡 ----
+  # if: always()가 없으면 앞 잡이 실패했을 때 이 잡이 "건너뜀"이 되고, GitHub은 건너뛴 필수 체크를
+  # 통과로 취급한다. 그래서 항상 실행하고, 모든 OS가 성공했을 때만 통과시킨다.
+  backend:
+    name: Backend (Spring Boot)
+    if: always()
+    needs: backend-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check that every OS passed
+        run: test "${{ needs.backend-test.result }}" = "success"
+
+  frontend:
+    name: Frontend (React + Vite)
+    if: always()
+    needs: frontend-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check that every OS passed
+        run: test "${{ needs.frontend-test.result }}" = "success"
