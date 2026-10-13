@@ -44,6 +44,19 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!--
+                        Mockito가 쓰는 Byte Buddy는 자기가 아는 것보다 새로운 Java 버전에서는 클래스를
+                        조작하지 못해 테스트가 깨진다 (예: Homebrew의 mvn이 최신 JDK를 기본으로 쓰는 경우).
+                        이 옵션을 켜두면 JDK 17 이상 어떤 버전으로 실행해도 테스트가 돌아가서,
+                        OS마다 JDK 17을 찾아 고정해주는 별도 스크립트가 필요 없다.
+                    -->
+                    <argLine>-Dnet.bytebuddy.experimental=true</argLine>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 
