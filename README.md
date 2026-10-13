@@ -34,10 +34,13 @@ C 코드를 입력하면 **선택한 컴파일러**(Clang 또는 GNU GCC)의 최
 
 ```
 .
-├── backend/   # Spring Boot API 서버 — 컴파일 실행, 결과 비교
+├── backend/   # Spring Boot 서버 — 컴파일 실행, 결과 비교 (배포할 때는 화면도 함께 내보냄)
 ├── frontend/  # React UI — 코드 입력, 결과 렌더링
 └── docs/      # 문서 모음 (아래 참고)
 ```
+
+사용자에게 배포하는 형태는 **jar 파일 하나**입니다. 프론트엔드를 빌드한 결과물을 백엔드 jar 안에 넣어서,
+서버 하나가 화면과 API를 함께 내보냅니다.
 
 ## 빠르게 실행해보기
 
@@ -45,10 +48,10 @@ C 코드를 입력하면 **선택한 컴파일러**(Clang 또는 GNU GCC)의 최
 
 macOS, Linux, Windows에서 실행할 수 있습니다 (CI가 세 OS 모두에서 테스트합니다).
 
+- JDK 17 이상
 - C 컴파일러: `clang`, 그리고 선택적으로 GNU GCC (설치하면 컴파일러 드롭다운에서 고를 수 있음)
-- JDK 17 이상 (CI는 17 기준). Maven은 따로 설치하지 않아도 됩니다 — 저장소에 포함된
-  Maven Wrapper(`mvnw`)가 처음 실행할 때 알아서 내려받습니다.
-- Node.js 20.19 이상 또는 22.12 이상, npm
+
+실행만 할 때는 이 두 가지면 됩니다. Maven과 Node.js는 따로 설치하지 않아도 됩니다.
 
 | OS | 컴파일러 설치 |
 |---|---|
@@ -59,21 +62,50 @@ macOS, Linux, Windows에서 실행할 수 있습니다 (CI가 세 OS 모두에�
 > Windows에서 MSYS2를 기본 위치(`C:\msys64`)에 설치했다면 PATH를 따로 설정하지 않아도 서버가 알아서 찾습니다.
 > 다른 방법으로 설치했거나 인식이 안 될 때는 [사용자 가이드의 Windows 안내](docs/user-guide.md#windows에서-컴파일러-준비하기)를 참고하세요.
 
+### 방법 1 — jar 파일 내려받아 실행
+
+[Releases](https://github.com/gwangholee507/compiler-opt-visualizer/releases) 페이지에 올라온 `compiler-opt-visualizer-<버전>.jar`를 내려받아 실행합니다.
+(올라온 릴리스가 없다면 방법 2를 사용하세요.)
+
 ```bash
-# 터미널 1 — 백엔드 (기본 포트 8080)
+java -jar compiler-opt-visualizer-<버전>.jar
+```
+
+브라우저에서 `http://localhost:8080`을 열면 됩니다. 끝낼 때는 터미널에서 `Ctrl+C`를 누릅니다.
+
+### 방법 2 — 소스에서 바로 실행
+
+저장소를 받은 뒤 명령 하나로 실행합니다. 프론트엔드 빌드에 필요한 Node.js는 빌드가 알아서 내려받습니다.
+
+```bash
+cd backend
+./mvnw -Pbundle spring-boot:run        # Windows(PowerShell/cmd): .\mvnw.cmd -Pbundle spring-boot:run
+```
+
+마찬가지로 `http://localhost:8080`을 엽니다. (처음 실행할 때는 내려받을 것이 많아 몇 분 걸릴 수 있습니다.)
+
+> 서버는 기본적으로 **이 PC에서 오는 접속만** 받습니다. 받은 C 코드를 컴파일하고 실행까지 하는 프로그램이라,
+> 같은 네트워크의 다른 기기가 접속할 수 없도록 한 것입니다. 포트를 바꾸려면 끝에 `--server.port=9090`을 붙입니다.
+
+## 개발할 때
+
+코드를 고치면서 볼 때는 백엔드와 프론트엔드를 따로 띄웁니다. 프론트엔드 개발 서버가 수정 사항을 바로
+반영해주고, `/api` 요청은 백엔드로 넘겨줍니다. 이때는 Node.js 20.19 이상 또는 22.12 이상이 필요합니다.
+
+```bash
+# 터미널 1 — 백엔드 (포트 8080)
 cd backend
 ./mvnw spring-boot:run        # Windows(PowerShell/cmd): .\mvnw.cmd spring-boot:run
 ```
 
 ```bash
-# 터미널 2 — 프론트엔드 (기본 포트 5173)
+# 터미널 2 — 프론트엔드 개발 서버 (포트 5173)
 cd frontend
 npm install
 npm run dev
 ```
 
-브라우저에서 프론트엔드 주소(보통 `http://localhost:5173`)를 열면 됩니다.
-백엔드와 프론트엔드 둘 다 켜져 있어야 정상 동작합니다.
+브라우저에서는 프론트엔드 개발 서버 주소(`http://localhost:5173`)를 엽니다.
 
 ## 테스트
 
@@ -103,6 +135,7 @@ cd frontend && npm test
 |---|---|
 | [docs/branching-strategy.md](docs/branching-strategy.md) | Git 브랜치 전략 (GitHub Flow) |
 | [docs/commit-convention.md](docs/commit-convention.md) | 커밋 메시지 규칙 (Conventional Commits) |
+| [docs/release.md](docs/release.md) | 릴리스 방법 — 태그를 올리면 jar가 자동으로 만들어져 배포됨 |
 | [CLAUDE.md](CLAUDE.md) | Claude Code로 작업할 때 지켜야 할 프로젝트 규칙 |
 
 ## 참고 자료
@@ -118,5 +151,6 @@ cd frontend && npm test
   결과가 서로 다른 것이 정상입니다.
 - OS마다 달라지는 부분(컴파일러 위치 탐색, 프로세스 실행/종료)이 코드의 어디에 모여 있는지는
   [docs/architecture.md](docs/architecture.md#os마다-다른-부분은-어디서-처리하나요)를 참고하세요.
-- 현재는 로컬 개발 단계라 별도 샌드박싱 없이 컴파일을 실행합니다.
-  외부에 배포할 계획이 생기면 Docker 등으로 격리 + 리소스 제한을 추가해야 합니다.
+- 자기 PC에서 혼자 쓰는 것을 전제로 한 프로그램입니다. 별도 샌드박싱 없이 그 PC의 권한으로 컴파일과
+  실행을 수행하므로, 서버는 기본적으로 이 PC에서 오는 접속만 받습니다. 여러 사람이 접속하는 서버로
+  운영하려면 Docker 등으로 격리 + 리소스 제한을 먼저 추가해야 합니다.

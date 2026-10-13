@@ -24,7 +24,10 @@
 
 ### 상수
 - `DEFAULT_CODE`: 텍스트 에디터에 처음 채워지는 예시 C 코드 (`square`, `sum_loop`)
-- `API_BASE`: 백엔드 주소 (`http://localhost:8080`, 하드코딩됨 — 배포 시 환경변수로 분리 필요)
+- `BACKEND_UNREACHABLE`: 서버에 연결하지 못했을 때 보여주는 안내 문구
+- 백엔드 주소는 상수로 두지 않습니다. API는 항상 화면을 내려준 서버의 상대 경로(`/api/compilers`,
+  `/api/compile`)로 호출합니다 — 배포된 jar에서는 백엔드가 화면도 함께 내보내고, 개발 중에는 Vite 개발 서버가
+  `/api`를 백엔드로 넘겨주기 때문입니다 (아래 `vite.config.js` 참고).
 - `OPTIMIZATION_INFO`: `O0`~`O3` 각 레벨이 실제로 어떤 최적화를 하는지 초보자용으로 풀어쓴 설명 맵.
   `InfoTooltip`에 전달되는 텍스트의 원본
 
@@ -81,8 +84,11 @@
 2. `POST /api/compile`로 `{ code, compiler: selectedCompiler, runBenchmark }`를 JSON으로 전송
 3. 응답이 실패(`!res.ok`)면 에러 바디(`{ message }`, 백엔드의 `GlobalExceptionHandler`가 내려줌)를 파싱해
    메시지를 뽑고, 없으면 HTTP 상태코드로 대체 메시지 생성
+   - 상태코드가 502/503/504면 `BACKEND_UNREACHABLE` 문구를 씀. 개발 서버의 프록시는 백엔드가 꺼져 있으면 502를 돌려줌
 4. 성공하면 `setResults(data)`
-5. `finally`에서 `loading = false` (성공/실패 모두)
+5. `fetch` 자체가 실패(`TypeError`)하면 서버에 연결하지 못한 것이므로 `BACKEND_UNREACHABLE` 문구를 표시
+   (jar로 실행하다 서버를 끈 경우)
+6. `finally`에서 `loading = false` (성공/실패 모두)
 
 #### 렌더링 흐름
 1. 상단에 제목/설명, 코드 에디터(`<textarea>`)
@@ -92,6 +98,18 @@
    - 어떤 컴파일러 기준 결과인지 안내 문구(`results[0].compilerLabel`) 표시
    - `results`에서 `level === 'O0'`인 항목을 찾아 `baseAssembly`로 지정 (O0이 실패했으면 `null`)
    - 각 결과를 `OptimizationColumn`으로 렌더링하며 `baseAssembly`를 함께 전달
+
+---
+
+## `vite.config.js`
+**파일**: [`frontend/vite.config.js`](../frontend/vite.config.js)
+
+- `server.proxy`: 개발 서버(5173)로 온 `/api` 요청을 백엔드(`http://127.0.0.1:8080`)로 넘깁니다.
+  덕분에 `App.jsx`는 개발 중에도, 배포된 jar에서도 똑같이 `/api/...`만 호출하면 됩니다.
+  - `localhost`가 아니라 `127.0.0.1`을 쓰는 이유: 백엔드는 `127.0.0.1`에서만 듣는데, 환경에 따라
+    `localhost`가 IPv6 주소(`::1`)로 먼저 풀려 연결이 거부될 수 있기 때문입니다.
+- `npm run build`의 결과물(`frontend/dist`)은 백엔드의 `bundle` Maven 프로필이 jar 안에 넣습니다
+  ([backend.md](./backend.md#bundle-프로필--실행-가능한-jar-하나-만들기) 참고).
 
 ---
 

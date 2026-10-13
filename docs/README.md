@@ -14,6 +14,7 @@
 | [frontend.md](./frontend.md) | React 프론트엔드의 컴포넌트/함수별 설명 |
 | [branching-strategy.md](./branching-strategy.md) | Git 브랜치 전략 (GitHub Flow) — 브랜치 이름 규칙, PR/머지 규칙 |
 | [commit-convention.md](./commit-convention.md) | 커밋 메시지 규칙 (Conventional Commits) |
+| [release.md](./release.md) | 릴리스 방법 — 버전 태그를 올리면 실행 가능한 jar가 자동으로 배포됨 |
 
 ## 코드가 바뀌면?
 
