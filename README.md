@@ -27,7 +27,7 @@ C 코드를 입력하면 **선택한 컴파일러**(Clang 또는 GNU GCC)의 최
 |---|---|
 | Backend | Spring Boot (Java 17), `clang`/`gcc`를 서브프로세스로 호출해 컴파일·실행 수행 |
 | Frontend | React + Vite |
-| Compiler | 로컬 macOS의 clang (Xcode Command Line Tools) + 선택적으로 Homebrew GCC (`brew install gcc`) |
+| Compiler | 서버를 실행하는 PC에 설치된 clang + 선택적으로 GNU GCC (macOS, Linux) |
 | CI | GitHub Actions ([워크플로 정의](.github/workflows/ci.yml)) |
 
 ## 구조
@@ -42,9 +42,18 @@ C 코드를 입력하면 **선택한 컴파일러**(Clang 또는 GNU GCC)의 최
 ## 빠르게 실행해보기
 
 ### 준비물
-- macOS (Xcode Command Line Tools에 포함된 `clang`)
-- Java 17 이상, Maven
-- Node.js, npm
+
+macOS와 Linux에서 실행할 수 있습니다 (CI는 Ubuntu에서 테스트합니다). Windows 네이티브 환경은
+검증되지 않았으므로 WSL2(Ubuntu)에서 Linux와 같은 방법으로 실행하는 것을 권장합니다.
+
+- C 컴파일러: `clang`, 그리고 선택적으로 GNU GCC (설치하면 컴파일러 드롭다운에서 고를 수 있음)
+- JDK 17 이상 (17 권장 — CI와 테스트가 17 기준), Maven
+- Node.js 20.19 이상 또는 22.12 이상, npm
+
+| OS | 컴파일러 설치 |
+|---|---|
+| macOS | `xcode-select --install` (clang), `brew install gcc` (GCC, 선택) |
+| Ubuntu/Debian | `sudo apt-get install clang` (clang), `sudo apt-get install gcc` (GCC, 선택) |
 
 ```bash
 # 터미널 1 — 백엔드 (기본 포트 8080)
@@ -70,7 +79,9 @@ cd frontend && npm test
 ```
 
 > 시스템 `mvn`이 최신 Java를 기본으로 쓰도록 고정되어 있으면 Mockito가 깨지는 환경이 있어
-> `run-tests.sh`가 JDK 17로 고정해서 실행해줍니다.
+> `run-tests.sh`가 설치된 JDK 17을 찾아(macOS Homebrew, Linux `/usr/lib/jvm` 등) 고정해서 실행해줍니다.
+> JDK 17을 못 찾으면 `mvn` 기본 Java로 실행하며, 다른 위치에 설치했다면
+> `JAVA_HOME=/path/to/jdk-17 ./run-tests.sh`처럼 직접 지정할 수 있습니다.
 
 ## 더 알아보기 (문서)
 
@@ -100,6 +111,7 @@ cd frontend && npm test
 
 ## 참고
 
-- 로컬 macOS의 clang(Xcode Command Line Tools)을 그대로 사용합니다.
+- 서버를 실행하는 PC에 설치된 컴파일러를 그대로 사용합니다. 그래서 어셈블리는 그 PC의 OS와
+  CPU 아키텍처(ARM64, x86-64 등)에 맞춰 나옵니다.
 - 현재는 로컬 개발 단계라 별도 샌드박싱 없이 컴파일을 실행합니다.
   외부에 배포할 계획이 생기면 Docker 등으로 격리 + 리소스 제한을 추가해야 합니다.
