@@ -27,8 +27,8 @@ C 코드를 입력하면 **선택한 컴파일러**(Clang 또는 GNU GCC)의 최
 |---|---|
 | Backend | Spring Boot (Java 17), `clang`/`gcc`를 서브프로세스로 호출해 컴파일·실행 수행 |
 | Frontend | React + Vite |
-| Compiler | 서버를 실행하는 PC에 설치된 clang + 선택적으로 GNU GCC (macOS, Linux) |
-| CI | GitHub Actions ([워크플로 정의](.github/workflows/ci.yml)) |
+| Compiler | 서버를 실행하는 PC에 설치된 clang + 선택적으로 GNU GCC (macOS, Linux, Windows) |
+| CI | GitHub Actions — Ubuntu, macOS, Windows에서 테스트 ([워크플로 정의](.github/workflows/ci.yml)) |
 
 ## 구조
 
@@ -43,22 +43,26 @@ C 코드를 입력하면 **선택한 컴파일러**(Clang 또는 GNU GCC)의 최
 
 ### 준비물
 
-macOS와 Linux에서 실행할 수 있습니다 (CI는 Ubuntu에서 테스트합니다). Windows 네이티브 환경은
-검증되지 않았으므로 WSL2(Ubuntu)에서 Linux와 같은 방법으로 실행하는 것을 권장합니다.
+macOS, Linux, Windows에서 실행할 수 있습니다 (CI가 세 OS 모두에서 테스트합니다).
 
 - C 컴파일러: `clang`, 그리고 선택적으로 GNU GCC (설치하면 컴파일러 드롭다운에서 고를 수 있음)
-- JDK 17 이상 (17 권장 — CI와 테스트가 17 기준), Maven
+- JDK 17 이상 (CI는 17 기준). Maven은 따로 설치하지 않아도 됩니다 — 저장소에 포함된
+  Maven Wrapper(`mvnw`)가 처음 실행할 때 알아서 내려받습니다.
 - Node.js 20.19 이상 또는 22.12 이상, npm
 
 | OS | 컴파일러 설치 |
 |---|---|
 | macOS | `xcode-select --install` (clang), `brew install gcc` (GCC, 선택) |
 | Ubuntu/Debian | `sudo apt-get install clang` (clang), `sudo apt-get install gcc` (GCC, 선택) |
+| Windows | [MSYS2](https://www.msys2.org/) 설치 후 UCRT64 터미널에서 `pacman -S mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-gcc` |
+
+> Windows에서 MSYS2를 기본 위치(`C:\msys64`)에 설치했다면 PATH를 따로 설정하지 않아도 서버가 알아서 찾습니다.
+> 다른 방법으로 설치했거나 인식이 안 될 때는 [사용자 가이드의 Windows 안내](docs/user-guide.md#windows에서-컴파일러-준비하기)를 참고하세요.
 
 ```bash
 # 터미널 1 — 백엔드 (기본 포트 8080)
 cd backend
-mvn spring-boot:run
+./mvnw spring-boot:run        # Windows(PowerShell/cmd): .\mvnw.cmd spring-boot:run
 ```
 
 ```bash
@@ -74,14 +78,12 @@ npm run dev
 ## 테스트
 
 ```bash
-cd backend && ./run-tests.sh   # mvn test도 가능하지만, JDK 17로 고정 실행해줌
+cd backend && ./mvnw test      # Windows: .\mvnw.cmd test
 cd frontend && npm test
 ```
 
-> 시스템 `mvn`이 최신 Java를 기본으로 쓰도록 고정되어 있으면 Mockito가 깨지는 환경이 있어
-> `run-tests.sh`가 설치된 JDK 17을 찾아(macOS Homebrew, Linux `/usr/lib/jvm` 등) 고정해서 실행해줍니다.
-> JDK 17을 못 찾으면 `mvn` 기본 Java로 실행하며, 다른 위치에 설치했다면
-> `JAVA_HOME=/path/to/jdk-17 ./run-tests.sh`처럼 직접 지정할 수 있습니다.
+> 백엔드 테스트는 실제 컴파일러를 호출하므로 `clang`이 설치되어 있어야 통과합니다.
+> JDK는 17 이상이면 어떤 버전이든 됩니다 (`mvnw`는 `JAVA_HOME`, 없으면 PATH의 `java`를 사용).
 
 ## 더 알아보기 (문서)
 
@@ -112,6 +114,9 @@ cd frontend && npm test
 ## 참고
 
 - 서버를 실행하는 PC에 설치된 컴파일러를 그대로 사용합니다. 그래서 어셈블리는 그 PC의 OS와
-  CPU 아키텍처(ARM64, x86-64 등)에 맞춰 나옵니다.
+  CPU 아키텍처(ARM64, x86-64 등)에 맞춰 나옵니다. 같은 코드라도 macOS, Linux, Windows에서
+  결과가 서로 다른 것이 정상입니다.
+- OS마다 달라지는 부분(컴파일러 위치 탐색, 프로세스 실행/종료)이 코드의 어디에 모여 있는지는
+  [docs/architecture.md](docs/architecture.md#os마다-다른-부분은-어디서-처리하나요)를 참고하세요.
 - 현재는 로컬 개발 단계라 별도 샌드박싱 없이 컴파일을 실행합니다.
   외부에 배포할 계획이 생기면 Docker 등으로 격리 + 리소스 제한을 추가해야 합니다.

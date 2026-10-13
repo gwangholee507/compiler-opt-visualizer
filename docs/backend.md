@@ -37,9 +37,21 @@ HTTP 요청을 받는 REST 컨트롤러. `@CrossOrigin`으로 프론트엔드 �
 **파일**: [`config/CompilerProperties.java`](../backend/src/main/java/com/compareopt/optvisualizer/config/CompilerProperties.java),
 [`service/CompilerRegistry.java`](../backend/src/main/java/com/compareopt/optvisualizer/service/CompilerRegistry.java)
 
-`application.yml`의 `compiler.options` 목록(컴파일러 id/label/후보 실행 파일 이름들)을
+`application.yml`의 `compiler.options` 목록(컴파일러 id/label/후보 실행 파일들)을
 `CompilerProperties`가 바인딩하고, `CompilerRegistry`가 서버 시작 시 각 후보에 대해
 `{candidate} --version`을 실행해보며 실제로 동작하는 첫 번째 후보를 채택합니다.
+어떤 후보가 채택됐는지는 시작 로그(`컴파일러 'gcc'(GNU GCC) → gcc-16`)에 남습니다.
+
+- 후보는 두 종류입니다. `candidates`는 모든 OS에서 시도하고, `os-candidates.{windows|macos|linux}`는
+  그 OS에서만 `candidates` 뒤에 이어서 시도합니다. `Option.candidatesFor(HostOs)`가 이 순서대로 합쳐서
+  돌려주며, 빈 값은 건너뜁니다.
+  - 후보에는 PATH에 있는 실행 파일 이름(`gcc-16`)과 절대 경로(`C:\msys64\ucrt64\bin\gcc.exe`)를 모두 쓸 수 있습니다.
+  - `candidates` 맨 앞의 `${OPTVIS_CLANG:}` / `${OPTVIS_GCC:}`는 환경 변수로 경로를 직접 지정하는 자리입니다.
+    환경 변수가 없으면 빈 값이 되어 건너뜁니다.
+- `toolDirOf(executable)` / `ResolvedCompiler.toolDir()`: 절대 경로로 찾은 컴파일러면 그 실행 파일이 들어 있는
+  디렉터리를 돌려줍니다 (PATH의 이름으로 찾았으면 `null`). 이 디렉터리는 컴파일러와, 그 컴파일러로 만든
+  프로그램을 실행할 때 자식 프로세스의 PATH 맨 앞에 추가됩니다. Windows의 MinGW/MSYS2 GCC는 `gcc.exe`가
+  띄우는 `cc1.exe`가 필요한 DLL을 PATH에서 찾기 때문에, 이게 없으면 `--version`은 되는데 실제 컴파일은 실패합니다.
 
 - id가 `"gcc"`인 옵션은 버전 출력에 `"clang"`이라는 문자열이 포함되면 건너뜁니다.
   macOS의 `/usr/bin/gcc`가 실제로는 Apple clang의 별칭이라, 그대로 두면 진짜 GCC가 없는데도
@@ -67,10 +79,10 @@ HTTP 요청을 받는 REST 컨트롤러. `@CrossOrigin`으로 프론트엔드 �
 ### `runOneLevel(...) : OptimizationResult` (private)
 특정 최적화 레벨 하나에 대한 컴파일(및 옵트인 시 실행 벤치마크)을 수행.
 1. `{compiler} -S -O{level} input.c -o out.s` 실행 → 어셈블리 생성
-   - 실패 시 `sanitizeStderr()`로 서버 임시 경로를 `input.c`로 치환한 뒤 `OptimizationResult.failure()` 반환
+   - 실패 시 컴파일러 출력을 그대로 담아 `OptimizationResult.failure()` 반환
 2. `{compiler} -c -O{level} input.c -o out.o` 실행 → 오브젝트 파일 생성 (크기 비교용, `main()` 없어도 동작)
 3. 오브젝트 파일 크기(`Files.size()`)를 읽고, 실패해도 무시(0으로 처리)하고 계속 진행
-4. 어셈블리 파일 내용을 문자열로 읽어서 `OptimizationResult.success()` 생성
+4. 어셈블리 파일 내용을 문자열로 읽어서(줄바꿈은 `\n`으로 통일) `OptimizationResult.success()` 생성
 5. `runBenchmark=true`면 `benchmarkExecution()`을 호출해 실행 시간을 결과에 붙임
 
 ### `benchmarkExecution(...) : ExecutionOutcome` (private)
@@ -78,24 +90,67 @@ HTTP 요청을 받는 REST 컨트롤러. `@CrossOrigin`으로 프론트엔드 �
 실행 파일을 `BENCHMARK_RUNS`(5)번 실행해서 걸린 시간(나노초) 중 최솟값을 채택합니다.
 - 링크 실패(대개 `main()` 없음) 시 컴파일 자체는 성공으로 두고 `executionError`만 채움 — 순수 함수만
   있는 코드에서도 어셈블리/크기 비교는 그대로 볼 수 있게 하기 위함
+  - `linkFailureMessage()`가 안내 문구 뒤에 링커의 원본 출력(최대 1,000자)을 붙여줌. 링커가 없는 환경
+    (예: Windows에 LLVM만 설치한 경우)에서 원인을 알 수 있게 하기 위함
 - 한 번이라도 `EXECUTION_TIMEOUT_SECONDS`(5초) 안에 끝나지 않으면 즉시 타임아웃 에러로 처리
+- 실행 파일 이름은 OS와 무관하게 `out-O{n}.exe` (Windows는 확장자가 필요하고, 다른 OS는 있어도 무해)
 
-### `run(List<String> command) : ProcessResult` (private)
-`ProcessBuilder`로 실제 외부 프로세스(컴파일러)를 실행하는 저수준 헬퍼.
-- `process.waitFor(10, TimeUnit.SECONDS)`로 **10초 타임아웃** 적용 — 무한 루프 코드가 들어와도 서버가 멈추지 않도록 방지
-- 타임아웃 시 `process.destroyForcibly()`로 강제 종료
-- stderr을 문자열로 캡처해서 실패 원인을 그대로 프론트엔드에 전달
+### `runCompiler(Path workDir, ResolvedCompiler compiler, String... args) : ProcessResult` (private)
+컴파일러를 임시 작업 디렉터리 **안에서** 실행하는 헬퍼. 실제 프로세스 실행은 `ProcessRunner.run()`에 위임.
+- 작업 디렉터리를 `workDir`로 두고 파일은 상대 경로(`input.c`, `out-O0.s`)로만 넘김. 그래서 에러 메시지에
+  서버 임시 디렉터리의 절대 경로 대신 `input.c:1:16: error: ...`처럼 파일 이름만 찍히고(별도 치환 불필요),
+  임시 디렉터리 경로에 공백이나 한글이 있어도 컴파일러 인자로 전달되지 않음
+- **10초 타임아웃**(`COMPILE_TIMEOUT_SECONDS`) — 초과하면 `"컴파일 시간 초과"` 메시지를 담은 실패 결과 반환
+- 프로세스를 시작하지 못한 경우(`IOException`)에도 예외 대신 사유를 담은 실패 결과를 반환
 
-### `sanitizeStderr(String stderr, Path sourceFile) : String` (private)
-clang stderr에 그대로 찍히는 `/var/folders/.../input.c` 같은 서버 임시 디렉터리 절대경로를
-`input.c`로 치환. 사용자에게는 의미 없는 서버 내부 경로라 노출하지 않기 위함.
-
-### `cleanup(Path workDir)` (private)
+### `cleanup(Path workDir)` / `deleteRecursively(Path dir)` (private)
 `Files.walk()`로 임시 디렉터리 내 모든 파일/디렉터리를 순회하며 삭제.
-파일을 먼저 지우고 디렉터리를 나중에 지워야 하므로 경로를 역순 정렬(`b.compareTo(a)`) 후 삭제.
+파일을 먼저 지우고 디렉터리를 나중에 지워야 하므로 경로를 역순 정렬 후 삭제.
+Windows에서는 방금 종료된 실행 파일이 백신 검사 등으로 잠깐 잠겨 삭제가 실패할 수 있어서,
+남은 파일이 있으면 100ms 간격으로 최대 3번까지 다시 시도.
 
-### `ProcessResult` (private record)
-`(int exitCode, String stderr)` — 프로세스 실행 결과를 담는 내부 전용 값 객체.
+---
+
+## `platform` 패키지 — OS마다 다른 부분
+**파일**: [`platform/HostOs.java`](../backend/src/main/java/com/compareopt/optvisualizer/platform/HostOs.java),
+[`platform/ProcessRunner.java`](../backend/src/main/java/com/compareopt/optvisualizer/platform/ProcessRunner.java),
+[`platform/ProcessResult.java`](../backend/src/main/java/com/compareopt/optvisualizer/platform/ProcessResult.java)
+
+macOS/Linux/Windows에서 동작이 달라지는 코드를 모아둔 패키지. 다른 패키지에는 OS별 분기를 두지 않는 것이 원칙입니다
+(배경은 [architecture.md](./architecture.md#os마다-다른-부분은-어디서-처리하나요) 참고).
+
+### `HostOs` (enum)
+`WINDOWS`, `MACOS`, `LINUX`, `OTHER`.
+- `current()`: 서버가 떠 있는 OS (JVM의 `os.name`으로 판단, 시작 시 한 번만 계산)
+- `fromOsName(String)`: `os.name` 문자열을 enum으로 변환. `"Darwin"`에 `"win"`이 들어 있어서 macOS를 먼저 확인함
+- `configKey()`: `application.yml`의 `os-candidates`에서 쓰는 키 (`"windows"`, `"macos"`, `"linux"`)
+
+### `ProcessRunner`
+외부 프로세스(컴파일러, 사용자 프로그램)를 실행하는 유일한 창구.
+
+#### `run(command, workDir, toolDir, timeout) : ProcessResult`
+stdout+stderr를 합쳐서 캡처하며 실행.
+- 출력을 파이프가 아니라 **임시 파일**로 받음. 파이프는 버퍼(Windows는 수 KB)가 차면 자식 프로세스가 출력
+  대기 상태로 멈추는데, 그러면 경고/에러가 많은 정상 코드가 "시간 초과"로 잘못 처리되기 때문
+- `workDir`가 있으면 그 디렉터리를 작업 디렉터리로 지정, `toolDir`가 있으면 자식 프로세스의 PATH 맨 앞에 추가
+- 타임아웃 시 **자식 프로세스까지** 강제 종료(`killTree`). 드라이버(`gcc`)만 죽이면 실제 컴파일러(`cc1`)가
+  살아남고, Windows에서는 그 프로세스가 임시 파일을 잡고 있어 정리가 실패함
+- 실행 파일이 없는 등 프로세스를 시작조차 못 하면 `IOException`을 던짐 (`CompilerRegistry`는 이걸 "설치 안 됨"으로 해석)
+
+#### `runDiscardingOutput(command, workDir, toolDir, timeout) : ProcessResult`
+출력을 모두 버리고 실행. 사용자 프로그램의 실행 시간만 잴 때 사용 (출력량이 측정에 영향을 주지 않도록).
+
+#### `prependToPath(env, dir, caseInsensitiveNames)` (package-private)
+환경 변수 맵의 PATH 맨 앞에 디렉터리를 추가. Windows는 환경 변수 이름이 보통 `Path`로 들어 있는데
+`ProcessBuilder.environment()` 맵은 대소문자를 구분하므로, 기존 키를 찾아 그 키를 갱신함
+(그냥 `PATH`로 넣으면 `Path`와 `PATH`가 둘 다 생김).
+
+#### `normalizeNewlines(String) : String` (static)
+Windows 도구가 쓰는 `\r\n`을 `\n`으로 통일.
+
+### `ProcessResult` (record)
+`(int exitCode, String output, boolean timedOut, long elapsedNanos)` — 프로세스 한 번의 실행 결과.
+`succeeded()`는 타임아웃 없이 종료 코드 0으로 끝났는지를 돌려줌.
 
 ---
 

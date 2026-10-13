@@ -24,12 +24,13 @@ C 코드를 입력하면, 선택한 컴파일러(**Clang** 또는 **GNU GCC**)�
 
 ### 준비물
 
-macOS와 Linux에서 실행할 수 있습니다. Windows 네이티브 환경은 검증되지 않았으므로
-WSL2(Ubuntu)에서 Linux와 같은 방법으로 실행하는 것을 권장합니다.
+macOS, Linux, Windows에서 실행할 수 있습니다.
 
 - `clang` — macOS는 Xcode Command Line Tools(`xcode-select --install`)에 포함되어 있고,
-  Ubuntu/Debian은 `sudo apt-get install clang`으로 설치합니다.
-- JDK 17 이상(17 권장), Maven (백엔드용)
+  Ubuntu/Debian은 `sudo apt-get install clang`으로 설치합니다. Windows는 바로 아래
+  [Windows에서 컴파일러 준비하기](#windows에서-컴파일러-준비하기)를 참고하세요.
+- JDK 17 이상 (백엔드용). Maven은 따로 설치하지 않아도 됩니다 — `backend` 폴더의
+  Maven Wrapper(`mvnw`, Windows는 `mvnw.cmd`)가 처음 실행할 때 알아서 내려받습니다.
 - Node.js 20.19 이상 또는 22.12 이상, npm (프론트엔드용)
 - (선택) GNU GCC — 설치하면 컴파일러 드롭다운에 "GNU GCC"도 뜨고 선택할 수
   있습니다. 설치 안 해도 앱은 정상 동작하며, 이 경우 드롭다운에는 Clang만 나옵니다.
@@ -40,18 +41,53 @@ WSL2(Ubuntu)에서 Linux와 같은 방법으로 실행하는 것을 권장합니
 준비물이 설치되어 있는지 확인하려면:
 ```bash
 clang --version
-mvn --version
+java -version
 node -v
 gcc-16 --version   # macOS에서 brew install gcc로 설치한 경우 (버전 번호는 설치 시점에 따라 다를 수 있음)
-gcc --version      # Linux에서 GCC를 설치한 경우
+gcc --version      # Linux/Windows에서 GCC를 설치한 경우
 ```
+
+### Windows에서 컴파일러 준비하기
+
+Windows에는 C 컴파일러가 기본으로 들어 있지 않아서 직접 설치해야 합니다. 가장 간단한 방법은
+[MSYS2](https://www.msys2.org/)입니다.
+
+1. MSYS2를 기본 위치(`C:\msys64`)에 설치합니다.
+2. 시작 메뉴에서 **MSYS2 UCRT64** 터미널을 열고 컴파일러를 설치합니다.
+   ```bash
+   pacman -S mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-gcc
+   ```
+3. 끝입니다. 서버가 시작할 때 `C:\msys64\ucrt64\bin`을 알아서 확인하므로 **PATH를 따로
+   설정하지 않아도 됩니다.**
+
+다른 방법으로 설치한 경우:
+
+- **PATH에 `clang`/`gcc`가 있으면** 그것을 먼저 사용합니다 (WinLibs 등 다른 MinGW-w64 배포판도 이 방식으로 동작).
+- **LLVM 공식 설치 프로그램**으로 설치한 clang(`C:\Program Files\LLVM`)도 자동으로 찾습니다. 다만 이 clang은
+  C 표준 헤더(`stdio.h` 등)와 링커를 Visual Studio에서 가져다 쓰기 때문에, **Visual Studio Build Tools의
+  "C++를 사용한 데스크톱 개발"** 이 함께 설치되어 있어야 `#include`가 있는 코드와 실행 시간 측정이 동작합니다.
+- **그 밖의 위치**에 설치했다면 환경 변수로 실행 파일 경로를 직접 알려줄 수 있습니다 (macOS/Linux도 동일).
+  ```powershell
+  $env:OPTVIS_GCC = "D:\tools\mingw64\bin\gcc.exe"     # clang은 OPTVIS_CLANG
+  .\mvnw.cmd spring-boot:run
+  ```
+
+서버가 어떤 컴파일러를 찾았는지는 백엔드를 실행할 때 뜨는 로그에서 확인할 수 있습니다.
+```
+컴파일러 'clang'(Clang (LLVM)) → C:\msys64\ucrt64\bin\clang.exe
+컴파일러 'gcc'(GNU GCC) → C:\msys64\ucrt64\bin\gcc.exe
+```
+
+> Windows에서 만든 어셈블리는 macOS/Linux와 모양이 다릅니다(섹션 이름, 심볼 표기, 호출 규약 등).
+> 운영체제마다 실행 파일 형식과 함수 호출 규칙이 다르기 때문이며, 정상입니다.
 
 ### 백엔드 실행 (터미널 1)
 ```bash
 cd backend
-mvn spring-boot:run
+./mvnw spring-boot:run        # Windows(PowerShell/cmd): .\mvnw.cmd spring-boot:run
 ```
 `Tomcat started on port 8080` 같은 로그가 뜨면 준비 완료입니다.
+(처음 실행할 때는 Maven과 라이브러리를 내려받느라 몇 분 걸릴 수 있습니다.)
 
 ### 프론트엔드 실행 (터미널 2)
 ```bash
@@ -124,6 +160,8 @@ npm run dev
 - `main()`이 없는 코드(예: 기본 예시처럼 함수만 있는 코드)는 체크박스를 켜도 링크 자체가
   안 되므로, 컴파일/어셈블리 결과는 그대로 보이고 실행 시간 자리에는 회색 `⏱ 실행 불가`
   배지만 뜹니다. 오류가 아니라 정상적인 동작입니다.
+- `main()`이 있는데도 `⏱ 실행 불가`가 뜬다면 배지에 마우스를 올려보세요. 링커가 남긴 원본 메시지가
+  함께 표시됩니다 (예: Windows에서 링커가 설치되어 있지 않은 경우).
 - ⚠ 이 기능은 **서버가 사용자가 입력한 코드로 만들어진 프로그램을 그대로 실행**합니다.
   그래서 기본값이 꺼져 있고, 사용자가 직접 켜야만(옵트인) 동작합니다. 신뢰할 수 없는 코드를
   이 앱에 붙여넣고 실행 시간 측정을 켜지 마세요.
@@ -169,15 +207,18 @@ input.c:1:16: error: use of undeclared identifier 'retrun'; did you mean 'return
 백엔드가 켜져 있는지 확인하세요.
 
 **Q. 다른 컴퓨터에서도 똑같이 동작하나요?**
-최소한 `clang`이 설치되어 있어야 하고, macOS/Linux의 컴파일러 버전이나 CPU 아키텍처(Intel/Apple Silicon 등)에
-따라 생성되는 어셈블리 문법이 달라질 수 있습니다(예: x86과 ARM은 완전히 다른 명령어 집합을 씁니다).
+최소한 `clang`이 설치되어 있어야 하고, 운영체제(macOS/Linux/Windows)와 컴파일러 버전, CPU 아키텍처
+(Intel/Apple Silicon 등)에 따라 생성되는 어셈블리가 달라집니다(예: x86과 ARM은 완전히 다른 명령어 집합을 씁니다).
 같은 컴퓨터, 같은 컴파일러 버전으로 비교하는 것을 권장합니다.
 
 **Q. 컴파일러 드롭다운에 "GNU GCC"가 안 보이거나 비활성화되어 있어요.**
-서버가 실행 중인 컴퓨터에 실제 GNU GCC가 설치되어 있지 않다는 뜻입니다. macOS는
+서버가 실행 중인 컴퓨터에서 실제 GNU GCC를 찾지 못했다는 뜻입니다. macOS는
 `brew install gcc`로 설치할 수 있습니다 (설치되는 실행 파일 이름이 `gcc-16`처럼 버전이 붙어서
 `backend/src/main/resources/application.yml`의 `compiler.options` 후보 목록에 없는 새 버전이면
 목록에 그 버전을 추가해야 인식됩니다). Ubuntu 등 Linux는 보통 `sudo apt-get install gcc`로 충분합니다.
+Windows는 [Windows에서 컴파일러 준비하기](#windows에서-컴파일러-준비하기)를 참고하세요.
+어느 OS든 설치는 했는데 인식이 안 된다면 `OPTVIS_GCC` 환경 변수에 실행 파일의 전체 경로를 넣고
+백엔드를 다시 실행하면 됩니다.
 
 **Q. "실행 시간"이 매번 값이 조금씩 달라져요.**
 프로세스를 새로 띄워서 실행하는 방식이라 OS 스케줄링 등의 영향을 받습니다. 그래서 5번 실행해서

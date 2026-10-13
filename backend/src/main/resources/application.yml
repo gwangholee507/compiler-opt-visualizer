@@ -3,18 +3,36 @@ server:
 
 compiler:
   # 프론트엔드가 선택할 수 있는 컴파일러 목록.
-  # candidates는 순서대로 시도해서 서버에서 실제로 실행되는 첫 번째 이름을 사용한다
-  # (예: Homebrew GCC는 "gcc-16"처럼 버전이 붙어 설치되므로 여러 버전을 후보로 나열).
+  #
+  # candidates: 모든 OS에서 순서대로 시도해서, 서버에서 실제로 실행되는 첫 번째 것을 사용한다.
+  #   PATH에 있는 실행 파일 이름이나 절대 경로를 적을 수 있다
+  #   (예: Homebrew GCC는 "gcc-16"처럼 버전이 붙어 설치되므로 여러 버전을 후보로 나열).
+  #   맨 앞의 ${OPTVIS_...:}는 환경 변수로 컴파일러 경로를 직접 지정하는 자리다. 설정하지 않으면
+  #   빈 값이 되어 건너뛴다.  예) OPTVIS_GCC=/opt/gcc-15/bin/gcc  또는  OPTVIS_GCC=D:\tools\mingw64\bin\gcc.exe
+  #
+  # os-candidates: 그 OS에서만 candidates 뒤에 추가로 시도한다. PATH에 자동 등록되지 않는
+  #   기본 설치 위치를 적어두는 용도. 키는 windows / macos / linux.
   options:
     - id: clang
       label: "Clang (LLVM)"
-      candidates: [clang]
+      candidates: ["${OPTVIS_CLANG:}", clang]
+      os-candidates:
+        windows:
+          # MSYS2와 LLVM 공식 설치 프로그램은 기본적으로 PATH에 등록하지 않는다.
+          - 'C:\msys64\ucrt64\bin\clang.exe'
+          - 'C:\msys64\clang64\bin\clang.exe'
+          - 'C:\msys64\mingw64\bin\clang.exe'
+          - 'C:\Program Files\LLVM\bin\clang.exe'
     - id: gcc
       label: "GNU GCC"
       # macOS 기본 "gcc"는 사실 Apple clang의 별칭이지만, CompilerRegistry가 버전 출력에서
       # "clang"이 보이면 걸러내므로 bare "gcc"를 후보 맨 끝에 둬도 안전하다
       # (Homebrew GCC 버전이 바뀌거나 Ubuntu 기본 gcc 버전이 달라져도 이 후보로 커버됨).
-      candidates: [gcc-16, gcc-15, gcc-14, gcc-13, gcc-12, gcc]
+      candidates: ["${OPTVIS_GCC:}", gcc-16, gcc-15, gcc-14, gcc-13, gcc-12, gcc]
+      os-candidates:
+        windows:
+          - 'C:\msys64\ucrt64\bin\gcc.exe'
+          - 'C:\msys64\mingw64\bin\gcc.exe'
 
 logging:
   level:

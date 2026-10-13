@@ -1,6 +1,8 @@
 package com.compareopt.optvisualizer.service;
 
 import com.compareopt.optvisualizer.dto.OptimizationResult;
+import com.compareopt.optvisualizer.platform.ProcessResult;
+import com.compareopt.optvisualizer.platform.ProcessRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -9,13 +11,17 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 선택된 컴파일러(clang/gcc 등)를 서브프로세스로 호출해 최적화 레벨(O0~O3)별로
  * 어셈블리와 바이너리 크기, (옵트인 시) 실행 시간을 뽑아내는 서비스.
+ *
+ * 이 클래스에는 OS별 분기를 두지 않는다. 프로세스를 띄우고 죽이는 방식, 컴파일러 위치 탐색처럼
+ * OS마다 달라지는 부분은 platform 패키지(ProcessRunner, HostOs)와 CompilerRegistry가 맡는다.
  *
  * 주의: 지금은 로컬 개인 프로젝트 단계라 별도 샌드박싱(Docker 등) 없이
  * 서버 프로세스 권한으로 직접 컴파일/실행을 수행합니다.
@@ -28,14 +34,20 @@ public class CompilerService {
 
     private static final Logger log = LoggerFactory.getLogger(CompilerService.class);
     private static final List<String> LEVELS = List.of("O0", "O1", "O2", "O3");
+    private static final String SOURCE_FILE_NAME = "input.c";
     private static final long COMPILE_TIMEOUT_SECONDS = 10;
     private static final long EXECUTION_TIMEOUT_SECONDS = 5;
     private static final int BENCHMARK_RUNS = 5;
+    private static final int LINK_ERROR_DETAIL_MAX_CHARS = 1000;
+    private static final int CLEANUP_ATTEMPTS = 3;
+    private static final long CLEANUP_RETRY_DELAY_MS = 100;
 
     private final CompilerRegistry compilerRegistry;
+    private final ProcessRunner processRunner;
 
-    public CompilerService(CompilerRegistry compilerRegistry) {
+    public CompilerService(CompilerRegistry compilerRegistry, ProcessRunner processRunner) {
         this.compilerRegistry = compilerRegistry;
+        this.processRunner = processRunner;
     }
 
     public List<OptimizationResult> compareOptimizationLevels(String sourceCode, String compilerId, boolean runBenchmark) {
@@ -45,11 +57,10 @@ public class CompilerService {
         Path workDir = null;
         try {
             workDir = Files.createTempDirectory("opt-visualizer-");
-            Path sourceFile = workDir.resolve("input.c");
-            Files.writeString(sourceFile, sourceCode, StandardCharsets.UTF_8);
+            Files.writeString(workDir.resolve(SOURCE_FILE_NAME), sourceCode, StandardCharsets.UTF_8);
 
             for (String level : LEVELS) {
-                OptimizationResult result = runOneLevel(workDir, sourceFile, level, compiler, runBenchmark);
+                OptimizationResult result = runOneLevel(workDir, level, compiler, runBenchmark);
                 result.setCompilerInfo(compiler.id(), compiler.label());
                 results.add(result);
             }
@@ -66,32 +77,28 @@ public class CompilerService {
         return results;
     }
 
-    private OptimizationResult runOneLevel(Path workDir, Path sourceFile, String level,
+    private OptimizationResult runOneLevel(Path workDir, String level,
                                             CompilerRegistry.ResolvedCompiler compiler, boolean runBenchmark) {
         long start = System.currentTimeMillis();
-        Path asmFile = workDir.resolve("out-" + level + ".s");
-        Path objFile = workDir.resolve("out-" + level + ".o");
-        String compilerPath = compiler.path();
+        String asmName = "out-" + level + ".s";
+        String objName = "out-" + level + ".o";
 
         // 1) 어셈블리 생성: {compiler} -S -O{n} input.c -o out.s
-        ProcessResult asmResult = run(List.of(
-                compilerPath, "-S", "-" + level, sourceFile.toString(), "-o", asmFile.toString()
-        ));
+        ProcessResult asmResult = runCompiler(workDir, compiler, "-S", "-" + level, SOURCE_FILE_NAME, "-o", asmName);
         long elapsed = System.currentTimeMillis() - start;
 
-        if (asmResult.exitCode != 0) {
-            return OptimizationResult.failure(level, sanitizeStderr(asmResult.stderr, sourceFile), elapsed);
+        if (!asmResult.succeeded()) {
+            return OptimizationResult.failure(level, asmResult.output(), elapsed);
         }
 
         // 2) 오브젝트 파일 생성 (크기 비교용): {compiler} -c -O{n} input.c -o out.o
         //    main() 유무와 무관하게 컴파일만 하면 되므로 링크(-o 실행 파일)가 아니라 -c를 사용.
-        ProcessResult objResult = run(List.of(
-                compilerPath, "-c", "-" + level, sourceFile.toString(), "-o", objFile.toString()
-        ));
+        ProcessResult objResult = runCompiler(workDir, compiler, "-c", "-" + level, SOURCE_FILE_NAME, "-o", objName);
 
         long binarySize = 0;
+        Path objFile = workDir.resolve(objName);
         try {
-            if (objResult.exitCode == 0 && Files.exists(objFile)) {
+            if (objResult.succeeded() && Files.exists(objFile)) {
                 binarySize = Files.size(objFile);
             }
         } catch (IOException e) {
@@ -100,7 +107,9 @@ public class CompilerService {
 
         String assembly;
         try {
-            assembly = Files.readString(asmFile, StandardCharsets.UTF_8);
+            // Windows의 컴파일러는 어셈블리를 \r\n 줄바꿈으로 쓰므로, 어느 OS에서든 같은 형태가 되도록 통일한다.
+            assembly = ProcessRunner.normalizeNewlines(
+                    Files.readString(workDir.resolve(asmName), StandardCharsets.UTF_8));
         } catch (IOException e) {
             return OptimizationResult.failure(level, "어셈블리 파일 읽기 실패: " + e.getMessage(), elapsed);
         }
@@ -109,7 +118,7 @@ public class CompilerService {
         OptimizationResult result = OptimizationResult.success(level, assembly, binarySize, totalElapsed);
 
         if (runBenchmark) {
-            ExecutionOutcome outcome = benchmarkExecution(workDir, sourceFile, level, compilerPath);
+            ExecutionOutcome outcome = benchmarkExecution(workDir, level, compiler);
             result.setExecutionResult(outcome.timeMs, outcome.error);
         }
 
@@ -121,25 +130,27 @@ public class CompilerService {
      * main()이 없는 코드는 링크에 실패하므로 이 경우 에러 메시지만 채우고 조용히 넘어간다
      * (컴파일 자체는 성공했으므로 전체 결과를 실패로 처리하지 않음).
      */
-    private ExecutionOutcome benchmarkExecution(Path workDir, Path sourceFile, String level, String compilerPath) {
-        Path exeFile = workDir.resolve("out-" + level + ".exe");
+    private ExecutionOutcome benchmarkExecution(Path workDir, String level, CompilerRegistry.ResolvedCompiler compiler) {
+        // 확장자 .exe는 Windows에서 실행 파일로 인식되려면 필요하고, macOS/Linux에서는 있어도 무해하다.
+        String exeName = "out-" + level + ".exe";
+        Path exeFile = workDir.resolve(exeName);
 
-        ProcessResult linkResult = run(List.of(
-                compilerPath, "-" + level, sourceFile.toString(), "-o", exeFile.toString()
-        ));
+        ProcessResult linkResult = runCompiler(workDir, compiler, "-" + level, SOURCE_FILE_NAME, "-o", exeName);
 
-        if (linkResult.exitCode != 0 || !Files.exists(exeFile)) {
-            return new ExecutionOutcome(null, "실행 파일을 만들 수 없습니다 (main 함수가 없을 수 있습니다)");
+        if (!linkResult.succeeded() || !Files.exists(exeFile)) {
+            return new ExecutionOutcome(null, linkFailureMessage(linkResult.output()));
         }
 
         try {
             long bestNanos = Long.MAX_VALUE;
             for (int i = 0; i < BENCHMARK_RUNS; i++) {
-                Long elapsedNanos = runOnceAndTime(exeFile);
-                if (elapsedNanos == null) {
+                ProcessResult run = processRunner.runDiscardingOutput(
+                        List.of(exeFile.toString()), workDir, compiler.toolDir(),
+                        Duration.ofSeconds(EXECUTION_TIMEOUT_SECONDS));
+                if (run.timedOut()) {
                     return new ExecutionOutcome(null, "실행 시간 초과 (" + EXECUTION_TIMEOUT_SECONDS + "초)");
                 }
-                bestNanos = Math.min(bestNanos, elapsedNanos);
+                bestNanos = Math.min(bestNanos, run.elapsedNanos());
             }
             return new ExecutionOutcome(bestNanos / 1_000_000.0, null);
         } catch (IOException e) {
@@ -150,57 +161,75 @@ public class CompilerService {
         }
     }
 
-    /** 실행 파일을 한 번 실행하고 걸린 시간(나노초)을 반환. 타임아웃이면 null. */
-    private Long runOnceAndTime(Path exeFile) throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder(exeFile.toString());
-        pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
-        pb.redirectError(ProcessBuilder.Redirect.DISCARD);
-
-        long t0 = System.nanoTime();
-        Process process = pb.start();
-        boolean finished = process.waitFor(EXECUTION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        long elapsed = System.nanoTime() - t0;
-
-        if (!finished) {
-            process.destroyForcibly();
-            return null;
+    /**
+     * 링크 실패 사유. 대부분은 main()이 없어서지만, 링커가 없는 환경(예: Windows에 LLVM만 설치하고
+     * Visual Studio Build Tools나 MinGW가 없는 경우)도 있어서 링커의 원본 메시지를 함께 붙여준다.
+     */
+    private String linkFailureMessage(String linkerOutput) {
+        String message = "실행 파일을 만들 수 없습니다 (main 함수가 없거나, 링커가 설치되지 않았을 수 있습니다)";
+        String detail = linkerOutput == null ? "" : linkerOutput.strip();
+        if (detail.isEmpty()) {
+            return message;
         }
-        return elapsed;
+        if (detail.length() > LINK_ERROR_DETAIL_MAX_CHARS) {
+            detail = detail.substring(0, LINK_ERROR_DETAIL_MAX_CHARS) + "\n...";
+        }
+        return message + "\n\n" + detail;
     }
 
-    private ProcessResult run(List<String> command) {
+    /**
+     * 컴파일러를 임시 작업 디렉터리 안에서 실행한다.
+     *
+     * 작업 디렉터리를 workDir로 두고 파일은 상대 경로(input.c, out-O0.s)로만 넘긴다. 그래서
+     * 에러 메시지에 서버의 임시 디렉터리 절대 경로 대신 "input.c:1:16: error: ..."처럼 파일 이름만 찍히고,
+     * 임시 디렉터리 경로에 공백이나 한글(Windows 사용자 이름 등)이 있어도 인자로 전달되지 않아 안전하다.
+     *
+     * 프로세스를 시작하지 못했거나 시간 초과면 그 사유를 output에 담은 실패 결과를 돌려준다.
+     */
+    private ProcessResult runCompiler(Path workDir, CompilerRegistry.ResolvedCompiler compiler, String... args) {
+        List<String> command = new ArrayList<>();
+        command.add(compiler.path());
+        command.addAll(List.of(args));
         try {
-            ProcessBuilder pb = new ProcessBuilder(command);
-            pb.redirectErrorStream(false);
-            Process process = pb.start();
-
-            boolean finished = process.waitFor(COMPILE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            if (!finished) {
-                process.destroyForcibly();
-                return new ProcessResult(-1, "컴파일 시간 초과 (" + COMPILE_TIMEOUT_SECONDS + "초)");
+            ProcessResult result = processRunner.run(
+                    command, workDir, compiler.toolDir(), Duration.ofSeconds(COMPILE_TIMEOUT_SECONDS));
+            if (result.timedOut()) {
+                return new ProcessResult(-1, "컴파일 시간 초과 (" + COMPILE_TIMEOUT_SECONDS + "초)", true, result.elapsedNanos());
             }
-
-            String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-            return new ProcessResult(process.exitValue(), stderr);
-        } catch (IOException | InterruptedException e) {
+            return result;
+        } catch (IOException e) {
+            return new ProcessResult(-1, "프로세스 실행 실패: " + e.getMessage(), false, 0);
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return new ProcessResult(-1, "프로세스 실행 실패: " + e.getMessage());
+            return new ProcessResult(-1, "컴파일이 중단되었습니다.", false, 0);
         }
     }
 
     /**
-     * 컴파일러의 에러 메시지에 그대로 찍히는 서버 임시 디렉터리의 절대 경로를
-     * 사용자에게 의미 없는 정보이므로 "input.c"로 바꿔서 보여준다.
+     * 임시 작업 디렉터리를 통째로 지운다.
+     * Windows에서는 방금 종료된 실행 파일이 백신 검사 등으로 잠깐 잠겨 있어 삭제가 실패할 수 있어서,
+     * 남은 파일이 있으면 짧게 기다렸다가 몇 번 더 시도한다.
      */
-    private String sanitizeStderr(String stderr, Path sourceFile) {
-        if (stderr == null) return stderr;
-        return stderr.replace(sourceFile.toString(), "input.c");
-    }
-
     private void cleanup(Path workDir) {
         if (workDir == null) return;
-        try (var stream = Files.walk(workDir)) {
-            stream.sorted((a, b) -> b.compareTo(a)) // 파일 먼저, 디렉터리 나중에 삭제
+        for (int attempt = 1; attempt <= CLEANUP_ATTEMPTS; attempt++) {
+            if (deleteRecursively(workDir)) {
+                return;
+            }
+            try {
+                Thread.sleep(CLEANUP_RETRY_DELAY_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        log.warn("임시 디렉터리를 완전히 지우지 못했습니다: {}", workDir);
+    }
+
+    /** 디렉터리 안의 모든 것을 지우고, 남은 것이 없으면 true를 반환. */
+    private boolean deleteRecursively(Path dir) {
+        try (var stream = Files.walk(dir)) {
+            stream.sorted(Comparator.reverseOrder()) // 파일 먼저, 디렉터리 나중에 삭제
                     .forEach(p -> {
                         try {
                             Files.deleteIfExists(p);
@@ -210,9 +239,7 @@ public class CompilerService {
         } catch (IOException e) {
             log.warn("임시 디렉터리 정리 실패: {}", e.getMessage());
         }
-    }
-
-    private record ProcessResult(int exitCode, String stderr) {
+        return !Files.exists(dir);
     }
 
     private record ExecutionOutcome(Double timeMs, String error) {
