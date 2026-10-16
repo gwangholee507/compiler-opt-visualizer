@@ -3,6 +3,8 @@ package com.compareopt.optvisualizer.service;
 import com.compareopt.optvisualizer.config.CompilerProperties;
 import com.compareopt.optvisualizer.dto.OptimizationResult;
 import com.compareopt.optvisualizer.platform.ProcessRunner;
+import com.compareopt.optvisualizer.toolchain.Language;
+import com.compareopt.optvisualizer.toolchain.ToolchainKind;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -23,7 +25,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  *
  * macOS/Linux/Windows 어디서든 clang이 설치되어 있어야 통과한다 (CI는 세 OS 모두에서 돌린다).
  * 그래서 검증 내용도 특정 OS의 경로나 심볼 표기에 기대지 않도록 작성한다.
- * gcc 관련 테스트는 서버에 실제 GNU GCC가 없으면 (macOS의 gcc는 clang 별칭이라 CompilerRegistry가
+ * gcc 관련 테스트는 서버에 실제 GNU GCC가 없으면 (macOS의 gcc는 clang 별칭이라 toolchain: gcc가
  * 걸러냄) assumeTrue로 건너뛴다.
  */
 class CompilerServiceTest {
@@ -37,11 +39,15 @@ class CompilerServiceTest {
         CompilerProperties.Option clang = new CompilerProperties.Option();
         clang.setId("clang");
         clang.setLabel("Clang (LLVM)");
+        clang.setLanguage(Language.C);
+        clang.setToolchain(ToolchainKind.CLANG);
         clang.setCandidates(List.of("clang"));
 
         CompilerProperties.Option gcc = new CompilerProperties.Option();
         gcc.setId("gcc");
         gcc.setLabel("GNU GCC");
+        gcc.setLanguage(Language.C);
+        gcc.setToolchain(ToolchainKind.GCC);
         gcc.setCandidates(List.of("gcc-16", "gcc-15", "gcc-14", "gcc-13", "gcc-12", "gcc"));
 
         properties.setOptions(List.of(clang, gcc));
@@ -183,6 +189,8 @@ class CompilerServiceTest {
         CompilerProperties.Option clang = new CompilerProperties.Option();
         clang.setId("clang");
         clang.setLabel("Clang (LLVM)");
+        clang.setLanguage(Language.C);
+        clang.setToolchain(ToolchainKind.CLANG);
         clang.setCandidates(List.of(clangPath.toString()));
         CompilerProperties properties = new CompilerProperties();
         properties.setOptions(List.of(clang));
