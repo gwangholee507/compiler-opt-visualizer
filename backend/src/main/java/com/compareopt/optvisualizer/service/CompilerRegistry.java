@@ -4,6 +4,8 @@ import com.compareopt.optvisualizer.config.CompilerProperties;
 import com.compareopt.optvisualizer.platform.HostOs;
 import com.compareopt.optvisualizer.platform.ProcessResult;
 import com.compareopt.optvisualizer.platform.ProcessRunner;
+import com.compareopt.optvisualizer.toolchain.Language;
+import com.compareopt.optvisualizer.toolchain.Toolchain;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -14,7 +16,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -40,22 +41,36 @@ public class CompilerRegistry {
         this.processRunner = processRunner;
         HostOs hostOs = HostOs.current();
         for (CompilerProperties.Option option : properties.getOptions()) {
+            requireLanguageAndToolchain(option);
+            Toolchain toolchain = option.getToolchain().toolchain();
             List<String> candidates = option.candidatesFor(hostOs);
-            String resolvedPath = probeCandidates(option.getId(), candidates);
+            String resolvedPath = probeCandidates(toolchain, candidates);
             boolean available = resolvedPath != null;
             if (available) {
                 log.info("컴파일러 '{}'({}) → {}", option.getId(), option.getLabel(), resolvedPath);
             } else {
                 log.warn("컴파일러 '{}'({})를 찾을 수 없습니다. 후보: {}", option.getId(), option.getLabel(), candidates);
             }
-            compilers.add(new ResolvedCompiler(option.getId(), option.getLabel(), resolvedPath, available));
+            compilers.add(new ResolvedCompiler(
+                    option.getId(), option.getLabel(), option.getLanguage(), toolchain, resolvedPath, available));
+        }
+    }
+
+    /**
+     * language나 toolchain이 빠진 설정은 서버를 띄우는 단계에서 바로 알린다.
+     * 기본값을 두면 새 언어를 추가하면서 빠뜨렸을 때 요청마다 엉뚱한 언어로 컴파일되어 원인을 찾기 어렵다.
+     */
+    private static void requireLanguageAndToolchain(CompilerProperties.Option option) {
+        if (option.getLanguage() == null || option.getToolchain() == null) {
+            throw new IllegalStateException(
+                    "compiler.options의 '" + option.getId() + "'에 language와 toolchain을 지정해야 합니다.");
         }
     }
 
     /** 후보 실행 파일들을 순서대로 시도해서 처음으로 동작하는 것을 반환. 다 실패하면 null. */
-    private String probeCandidates(String id, List<String> candidates) {
+    private String probeCandidates(Toolchain toolchain, List<String> candidates) {
         for (String candidate : candidates) {
-            if (canRun(id, candidate)) {
+            if (canRun(toolchain, candidate)) {
                 return candidate;
             }
         }
@@ -63,22 +78,22 @@ public class CompilerRegistry {
     }
 
     /**
-     * `{executable} --version`을 실행해보고, 종료 코드가 0인지 + (id가 "gcc"일 때는) 출력이
-     * 진짜 GNU GCC인지까지 확인한다.
-     *
-     * macOS는 `/usr/bin/gcc`가 사실 Apple clang의 별칭이라 `gcc --version`이 정상 종료되면서
-     * "Apple clang version ..."을 출력한다. 그대로 두면 id="gcc"인데 실제로는 clang이 실행되는
-     * 오탐이 생기므로, gcc 후보는 출력에 "clang"이 없어야만 인정한다.
+     * `{executable} {versionArgs}`(예: `gcc-16 --version`)를 실행해보고, 종료 코드가 0인지 +
+     * 그 출력을 toolchain이 자기 계열의 컴파일러로 인정하는지 확인한다
+     * (예: gcc 계열은 clang의 별칭인 macOS의 gcc를 걸러낸다).
      */
-    private boolean canRun(String id, String executable) {
+    private boolean canRun(Toolchain toolchain, String executable) {
+        List<String> command = new ArrayList<>();
+        command.add(executable);
+        command.addAll(toolchain.versionArgs());
         try {
-            ProcessResult result = processRunner.run(
-                    List.of(executable, "--version"), null, toolDirOf(executable), PROBE_TIMEOUT);
+            ProcessResult result = processRunner.run(command, null, toolDirOf(executable), PROBE_TIMEOUT);
             if (!result.succeeded()) {
                 return false;
             }
-            if ("gcc".equals(id) && result.output().toLowerCase(Locale.ROOT).contains("clang")) {
-                log.warn("'{}'는 GNU GCC가 아니라 clang의 별칭으로 보여 건너뜁니다.", executable);
+            Optional<String> mismatch = toolchain.versionMismatch(result.output());
+            if (mismatch.isPresent()) {
+                log.warn("'{}'를 건너뜁니다: {}", executable, mismatch.get());
                 return false;
             }
             return true;
@@ -129,7 +144,8 @@ public class CompilerRegistry {
         return compiler;
     }
 
-    public record ResolvedCompiler(String id, String label, String path, boolean available) {
+    public record ResolvedCompiler(String id, String label, Language language, Toolchain toolchain,
+                                   String path, boolean available) {
 
         /** 이 컴파일러와, 이 컴파일러로 만든 프로그램을 실행할 때 PATH에 추가해야 하는 디렉터리 (없으면 null). */
         public Path toolDir() {
