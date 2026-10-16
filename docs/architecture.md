@@ -6,7 +6,7 @@
    │  1. 사용자가 C 코드 입력, 컴파일러 선택(clang/gcc), 실행 시간 측정 여부 체크 후 "비교하기" 클릭
    ▼
 [frontend/src/App.jsx] handleCompare()
-   │  2. POST http://localhost:8080/api/compile
+   │  2. POST /api/compile  (화면을 내려준 바로 그 서버로 — 아래 "화면과 API는 어떻게 한 서버에서 나오나요?" 참고)
    │       { code: "...", compiler: "clang"|"gcc", runBenchmark: true|false }
    ▼
 [backend] CompileController.compile()
@@ -35,6 +35,26 @@
    ▼
 [화면] O0~O3 컬럼을 나란히 렌더링, 바뀐 줄은 초록색 하이라이트, 실행 시간은 ⏱ 배지로 표시
 ```
+
+## 화면과 API는 어떻게 한 서버에서 나오나요?
+
+프론트엔드는 백엔드 주소를 따로 알지 않고 항상 **자기를 내려준 서버의 `/api`** 를 호출합니다.
+누가 화면을 내려주느냐만 실행 방식에 따라 달라집니다.
+
+```
+[배포된 jar / -Pbundle 실행]                  [개발할 때]
+
+ 브라우저 ── localhost:8080 ──▶ Spring Boot     브라우저 ── localhost:5173 ──▶ Vite 개발 서버
+                                ├─ /      → jar 안의 화면 파일                 ├─ /      → 소스를 바로 변환해서 응답 (수정 즉시 반영)
+                                └─ /api/* → CompileController                  └─ /api/* → 127.0.0.1:8080 (Spring Boot)으로 전달
+```
+
+- **jar**: `bundle` Maven 프로필이 `frontend`를 빌드해서(`frontend/dist`) jar의 `static/` 아래에 넣습니다.
+  Spring Boot는 `static/`의 파일을 자동으로 내보내므로 별도 코드가 없습니다.
+- **개발**: `vite.config.js`의 `server.proxy`가 `/api` 요청만 백엔드로 넘깁니다.
+
+두 경우 모두 브라우저 입장에서는 화면과 API가 같은 출처라서 CORS 설정이 필요 없고, 일부러 두지 않았습니다
+(아래 [보안 관련 주의사항](#보안-관련-주의사항) 참고).
 
 ## 컴파일러는 어떻게 선택 가능한 목록으로 관리되나요?
 
@@ -86,8 +106,18 @@ CI([ci.yml](../.github/workflows/ci.yml))는 Ubuntu, macOS, Windows 세 곳에�
 ## 보안 관련 주의사항
 
 `CompilerService`는 사용자가 입력한 코드를 서버 프로세스 권한으로 그대로 컴파일합니다.
-지금은 로컬 개인 프로젝트 단계라 별도 샌드박싱이 없습니다. 외부에 배포할 계획이 생기면
-Docker 컨테이너 격리 + CPU/메모리 제한을 반드시 추가해야 합니다.
+별도 샌드박싱이 없으므로 **"자기 PC에서 혼자 쓰는 프로그램"** 이라는 전제가 지켜져야 안전합니다.
+그 전제를 지키기 위한 장치가 두 가지 있습니다.
+
+- **이 PC에서 오는 접속만 받습니다** (`application.yml`의 `server.address: 127.0.0.1`).
+  Spring Boot의 기본값은 모든 네트워크 인터페이스에서 듣는 것이라, 그대로 두면 같은 Wi-Fi의 다른 기기가
+  이 서버에 코드를 보내 실행시킬 수 있습니다. `--server.address=0.0.0.0`으로 바꿀 수는 있지만
+  신뢰할 수 있는 네트워크에서만 써야 합니다.
+- **다른 웹사이트가 이 서버를 호출할 수 없습니다.** CORS 허용 설정을 두지 않았기 때문에, 사용자가 이 프로그램을
+  켜둔 채 다른 사이트를 방문해도 그 사이트의 스크립트가 보낸 `/api/compile` 요청은 브라우저의 사전 요청(OPTIONS)
+  단계에서 거부됩니다 (`CompileControllerTest`에 이를 확인하는 테스트가 있음).
+
+여러 사람이 접속하는 서버로 운영할 계획이 생기면 Docker 컨테이너 격리 + CPU/메모리 제한을 반드시 추가해야 합니다.
 
 `runBenchmark=true`로 요청하면 컴파일뿐 아니라 사용자 코드로 만든 실행 파일을 **서버가 직접
 실행**하므로 위험도가 한 단계 더 높습니다. 그래서:

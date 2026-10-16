@@ -29,9 +29,7 @@ macOS, Linux, Windows에서 실행할 수 있습니다.
 - `clang` — macOS는 Xcode Command Line Tools(`xcode-select --install`)에 포함되어 있고,
   Ubuntu/Debian은 `sudo apt-get install clang`으로 설치합니다. Windows는 바로 아래
   [Windows에서 컴파일러 준비하기](#windows에서-컴파일러-준비하기)를 참고하세요.
-- JDK 17 이상 (백엔드용). Maven은 따로 설치하지 않아도 됩니다 — `backend` 폴더의
-  Maven Wrapper(`mvnw`, Windows는 `mvnw.cmd`)가 처음 실행할 때 알아서 내려받습니다.
-- Node.js 20.19 이상 또는 22.12 이상, npm (프론트엔드용)
+- JDK 17 이상. Maven과 Node.js는 따로 설치하지 않아도 됩니다.
 - (선택) GNU GCC — 설치하면 컴파일러 드롭다운에 "GNU GCC"도 뜨고 선택할 수
   있습니다. 설치 안 해도 앱은 정상 동작하며, 이 경우 드롭다운에는 Clang만 나옵니다.
   macOS는 `brew install gcc`, Ubuntu/Debian은 `sudo apt-get install gcc`로 설치합니다.
@@ -42,7 +40,6 @@ macOS, Linux, Windows에서 실행할 수 있습니다.
 ```bash
 clang --version
 java -version
-node -v
 gcc-16 --version   # macOS에서 brew install gcc로 설치한 경우 (버전 번호는 설치 시점에 따라 다를 수 있음)
 gcc --version      # Linux/Windows에서 GCC를 설치한 경우
 ```
@@ -81,24 +78,38 @@ Windows에는 C 컴파일러가 기본으로 들어 있지 않아서 직접 설�
 > Windows에서 만든 어셈블리는 macOS/Linux와 모양이 다릅니다(섹션 이름, 심볼 표기, 호출 규약 등).
 > 운영체제마다 실행 파일 형식과 함수 호출 규칙이 다르기 때문이며, 정상입니다.
 
-### 백엔드 실행 (터미널 1)
+### 실행하기
+
+**방법 1 — jar 파일 내려받아 실행 (가장 간단)**
+
+[Releases](https://github.com/gwangholee507/compiler-opt-visualizer/releases) 페이지에서 `compiler-opt-visualizer-<버전>.jar`를 내려받고, 터미널에서 실행합니다.
+```bash
+java -jar compiler-opt-visualizer-<버전>.jar
+```
+
+**방법 2 — 소스에서 바로 실행**
+
+저장소를 내려받았다면 `backend` 폴더에서 명령 하나로 실행할 수 있습니다.
 ```bash
 cd backend
-./mvnw spring-boot:run        # Windows(PowerShell/cmd): .\mvnw.cmd spring-boot:run
+./mvnw -Pbundle spring-boot:run        # Windows(PowerShell/cmd): .\mvnw.cmd -Pbundle spring-boot:run
 ```
-`Tomcat started on port 8080` 같은 로그가 뜨면 준비 완료입니다.
-(처음 실행할 때는 Maven과 라이브러리를 내려받느라 몇 분 걸릴 수 있습니다.)
+(처음 실행할 때는 Maven, 라이브러리, 화면 빌드용 Node.js를 내려받느라 몇 분 걸릴 수 있습니다.)
 
-### 프론트엔드 실행 (터미널 2)
-```bash
-cd frontend
-npm install   # 처음 한 번만
-npm run dev
-```
-터미널에 뜨는 주소(보통 `http://localhost:5173`)를 브라우저에서 열면 됩니다.
+어느 방법이든 `Tomcat started on port 8080` 같은 로그가 뜨면 준비 완료입니다.
+브라우저에서 **`http://localhost:8080`** 을 열면 됩니다. 끝낼 때는 터미널에서 `Ctrl+C`를 누릅니다.
 
-> ⚠ 백엔드와 프론트엔드를 **둘 다** 띄워야 정상 동작합니다. 프론트엔드만 켜져 있으면
-> "비교하기"를 눌러도 요청이 실패합니다.
+> 화면과 서버가 프로그램 하나로 합쳐져 있어서 따로 띄울 것이 없습니다.
+> 코드를 고치면서 개발하려는 경우의 실행 방법은 [README의 "개발할 때"](../README.md#개발할-때)를 참고하세요.
+
+### 포트를 바꾸거나 다른 기기에서 접속하려면
+
+- **포트 변경**: 8080번을 이미 다른 프로그램이 쓰고 있다면 실행 명령 끝에 `--server.port=9090`을 붙입니다.
+  (방법 2는 `./mvnw -Pbundle spring-boot:run -Dspring-boot.run.arguments=--server.port=9090`)
+- **다른 기기에서 접속**: 기본적으로는 **이 프로그램을 실행한 PC에서만** 접속할 수 있습니다. 이 프로그램은 받은
+  C 코드를 컴파일하고 (옵션으로) 실행까지 하기 때문에, 같은 Wi-Fi의 다른 사람이 접속할 수 있으면 그 사람이
+  내 PC에서 임의의 프로그램을 실행할 수 있게 됩니다. 그래도 필요하다면 믿을 수 있는 네트워크에서만
+  `--server.address=0.0.0.0`을 붙여 실행하세요.
 
 ---
 
@@ -202,9 +213,13 @@ input.c:1:16: error: use of undeclared identifier 'retrun'; did you mean 'return
 [docs/backend.md](./backend.md)의 `CompilerService`를 참고해 오브젝트 파일 생성 과정을 확인해주세요.
 정상적인 코드라면 보통 0이 나오지 않습니다.
 
-**Q. "비교하기"를 눌렀는데 아무 반응이 없어요 / 네트워크 에러가 떠요.**
-백엔드(8080번 포트)가 꺼져 있을 가능성이 높습니다. [2. 처음 실행하기](#2-처음-실행하기)를 참고해
-백엔드가 켜져 있는지 확인하세요.
+**Q. "백엔드 서버에 연결할 수 없습니다"라고 떠요.**
+서버가 꺼져 있다는 뜻입니다. 프로그램을 실행한 터미널이 닫혔거나 `Ctrl+C`로 종료되지 않았는지 확인하고,
+[2. 처음 실행하기](#2-처음-실행하기)를 참고해 다시 실행하세요.
+
+**Q. 실행했더니 "Port 8080 was already in use"라고 나와요.**
+8080번 포트를 다른 프로그램(또는 이미 띄워둔 이 프로그램)이 쓰고 있습니다. 그 프로그램을 끄거나,
+[포트를 바꿔서](#포트를-바꾸거나-다른-기기에서-접속하려면) 실행하세요.
 
 **Q. 다른 컴퓨터에서도 똑같이 동작하나요?**
 최소한 `clang`이 설치되어 있어야 하고, 운영체제(macOS/Linux/Windows)와 컴파일러 버전, CPU 아키텍처

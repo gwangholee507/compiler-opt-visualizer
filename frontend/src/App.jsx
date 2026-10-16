@@ -15,7 +15,7 @@ int sum_loop(int n) {
 }
 `
 
-const API_BASE = 'http://localhost:8080'
+const BACKEND_UNREACHABLE = '백엔드 서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.'
 
 // 각 최적화 레벨이 실제로 뭘 하는지 초보자용으로 풀어쓴 설명
 const OPTIMIZATION_INFO = {
@@ -145,7 +145,7 @@ function App() {
   const [runBenchmark, setRunBenchmark] = useState(false)
 
   useEffect(() => {
-    fetch(`${API_BASE}/api/compilers`)
+    fetch('/api/compilers')
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => {
         setCompilers(data)
@@ -160,19 +160,24 @@ function App() {
     setError(null)
     setResults(null)
     try {
-      const res = await fetch(`${API_BASE}/api/compile`, {
+      const res = await fetch('/api/compile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, compiler: selectedCompiler, runBenchmark }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => null)
-        throw new Error(body?.message || `요청 실패 (HTTP ${res.status})`)
+        // 개발 서버(Vite)의 프록시는 백엔드가 꺼져 있으면 502를 돌려준다
+        const fallback = [502, 503, 504].includes(res.status)
+          ? BACKEND_UNREACHABLE
+          : `요청 실패 (HTTP ${res.status})`
+        throw new Error(body?.message || fallback)
       }
       const data = await res.json()
       setResults(data)
     } catch (e) {
-      setError(e.message)
+      // 서버에 아예 연결하지 못하면 fetch가 TypeError를 던진다 (jar로 실행하다 서버를 끈 경우)
+      setError(e instanceof TypeError ? BACKEND_UNREACHABLE : e.message)
     } finally {
       setLoading(false)
     }

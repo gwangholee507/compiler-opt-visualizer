@@ -8,12 +8,23 @@
 Spring Boot 진입점. `main()`에서 `SpringApplication.run()`을 호출해 내장 톰캣 서버(포트 8080)를 띄웁니다.
 특별한 로직은 없고, 애플리케이션을 부팅하는 역할만 합니다.
 
+서버 설정은 [`application.yml`](../backend/src/main/resources/application.yml)에 있습니다.
+- `server.address: 127.0.0.1` — 이 PC에서 오는 접속만 받습니다. 받은 코드를 컴파일/실행하는 서버라서
+  같은 네트워크의 다른 기기가 접속할 수 없게 한 것입니다. 실행할 때 `--server.address=0.0.0.0`
+  (또는 환경 변수 `SERVER_ADDRESS`)으로 바꿀 수 있습니다.
+- jar 안에 `static/` 폴더가 있으면(= `bundle` 프로필로 빌드한 경우) Spring Boot가 그 안의 화면 파일을
+  `/`에서 자동으로 내보냅니다. 이를 위한 별도 코드는 없습니다.
+
 ---
 
 ## `CompileController`
 **파일**: [`backend/src/main/java/.../controller/CompileController.java`](../backend/src/main/java/com/compareopt/optvisualizer/controller/CompileController.java)
 
-HTTP 요청을 받는 REST 컨트롤러. `@CrossOrigin`으로 프론트엔드 개발 서버(`http://localhost:5173`)의 요청만 허용합니다.
+HTTP 요청을 받는 REST 컨트롤러.
+
+CORS 허용 설정(`@CrossOrigin`)은 일부러 두지 않습니다. 화면은 항상 이 서버와 같은 출처에서 `/api`를 호출하고
+(배포된 jar에서는 이 서버가 화면도 내보내고, 개발 중에는 Vite 개발 서버가 `/api`를 넘겨줌), 이 API는 받은 코드를
+컴파일/실행하므로 사용자가 방문한 다른 웹사이트의 스크립트가 호출할 수 없어야 하기 때문입니다.
 
 ### `listCompilers() : List<CompilerOptionResponse>`
 - **경로**: `GET /api/compilers`
@@ -165,6 +176,13 @@ Windows 도구가 쓰는 `\r\n`을 `\n`으로 통일.
 `CompileRequest`의 `@NotBlank`/`@Size` 검증 실패 시 호출. 첫 번째 필드 에러의 메시지(예: "C 코드를 입력해주세요.")를
 뽑아 400 응답으로 반환.
 
+### `handleIllegalArgument(IllegalArgumentException e) : ResponseEntity<ErrorResponse>`
+존재하지 않거나 서버에 설치되지 않은 컴파일러를 요청한 경우(`CompilerRegistry.resolve()`). 400 응답으로 반환.
+
+### `handleNotFound(NoResourceFoundException e) : ResponseEntity<ErrorResponse>`
+없는 주소를 요청한 경우 404 응답으로 반환. 이 서버는 화면 파일도 함께 내보내므로 브라우저가 없는 파일을
+요청하는 일이 흔한데, 따로 처리하지 않으면 아래 catch-all이 500 + 에러 로그로 만들어버리기 때문에 둡니다.
+
 ### `handleUnexpected(Exception e) : ResponseEntity<ErrorResponse>`
 그 외 처리되지 않은 모든 예외를 잡는 catch-all 핸들러. 로그를 남기고 500 응답으로 반환.
 
@@ -203,3 +221,29 @@ Windows 도구가 쓰는 `\r\n`을 `\n`으로 통일.
 
 `(String id, String label, boolean available)` — `GET /api/compilers` 응답 항목 하나.
 실행 파일 경로는 서버 내부 정보라 일부러 포함하지 않음.
+
+---
+
+## `bundle` 프로필 — 실행 가능한 jar 하나 만들기
+**파일**: [`backend/pom.xml`](../backend/pom.xml)의 `<profiles>`
+
+사용자에게 배포하는 형태는 프론트엔드까지 들어 있는 jar 하나입니다. `-Pbundle`을 붙이면 Maven이 아래 순서로 만듭니다.
+
+| 순서 | 하는 일 | 담당 |
+|---|---|---|
+| 1 | 이전 빌드에서 넣어둔 화면 파일(`target/classes/static`) 비우기 | `maven-clean-plugin` |
+| 2 | Node.js를 `backend/target/` 아래에 내려받기 (버전은 `frontend.node.version` 속성) | `frontend-maven-plugin` |
+| 3 | `frontend`에서 `npm ci` → `npm run build` 실행 (`frontend/dist` 생성) | `frontend-maven-plugin` |
+| 4 | `frontend/dist`를 `target/classes/static`으로 복사 → jar에 포함됨 | `maven-resources-plugin` |
+
+```bash
+./mvnw -Pbundle package           # target/compiler-opt-visualizer-<버전>.jar 생성 → java -jar 로 실행
+./mvnw -Pbundle spring-boot:run   # jar를 만들지 않고 소스에서 바로 실행
+```
+
+- Node.js를 플러그인이 직접 내려받으므로 빌드하는 PC에 Node.js가 없어도 되고, Windows/macOS/Linux에서 같은 명령으로 동작합니다.
+- 기본 빌드(`./mvnw test`, `./mvnw package`)에는 포함되지 않습니다. 백엔드만 고칠 때 프론트엔드 빌드를 기다리지 않기 위함입니다.
+- 버전은 `revision` 속성(기본 `0.0.1-SNAPSHOT`)입니다. 릴리스 빌드는 `-Drevision=1.2.3`으로 지정합니다
+  ([release.md](./release.md) 참고).
+- CI는 세 OS에서 이 프로필로 jar를 만든 뒤 [`.github/scripts/smoke-test.sh`](../.github/scripts/smoke-test.sh)로
+  실제로 띄워서 화면(`/`)과 API(`/api/compilers`, `/api/compile`)가 한 서버에서 나오는지 확인합니다.
