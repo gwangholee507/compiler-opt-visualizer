@@ -48,10 +48,14 @@ CORS 허용 설정(`@CrossOrigin`)은 일부러 두지 않습니다. 화면은 �
 **파일**: [`config/CompilerProperties.java`](../backend/src/main/java/com/compareopt/optvisualizer/config/CompilerProperties.java),
 [`service/CompilerRegistry.java`](../backend/src/main/java/com/compareopt/optvisualizer/service/CompilerRegistry.java)
 
-`application.yml`의 `compiler.options` 목록(컴파일러 id/label/후보 실행 파일들)을
+`application.yml`의 `compiler.options` 목록(컴파일러 id/label/language/toolchain/후보 실행 파일들)을
 `CompilerProperties`가 바인딩하고, `CompilerRegistry`가 서버 시작 시 각 후보에 대해
-`{candidate} --version`을 실행해보며 실제로 동작하는 첫 번째 후보를 채택합니다.
+toolchain이 정한 버전 확인 명령(지금은 모두 `{candidate} --version`)을 실행해보며 실제로 동작하는 첫 번째 후보를 채택합니다.
 어떤 후보가 채택됐는지는 시작 로그(`컴파일러 'gcc'(GNU GCC) → gcc-16`)에 남습니다.
+
+- `language`(예: `c`)와 `toolchain`(예: `clang`, `gcc`)은 필수입니다. 둘 중 하나라도 빠지면 서버가 시작 단계에서
+  `IllegalStateException`으로 멈춥니다. 기본값을 두면 새 언어를 추가하다 빠뜨렸을 때 엉뚱한 언어로 컴파일되어
+  원인을 찾기 어렵기 때문입니다. 값의 의미는 아래 [`toolchain` 패키지](#toolchain-패키지--언어컴파일러마다-다른-부분) 참고.
 
 - 후보는 두 종류입니다. `candidates`는 모든 OS에서 시도하고, `os-candidates.{windows|macos|linux}`는
   그 OS에서만 `candidates` 뒤에 이어서 시도합니다. `Option.candidatesFor(HostOs)`가 이 순서대로 합쳐서
@@ -64,9 +68,11 @@ CORS 허용 설정(`@CrossOrigin`)은 일부러 두지 않습니다. 화면은 �
   프로그램을 실행할 때 자식 프로세스의 PATH 맨 앞에 추가됩니다. Windows의 MinGW/MSYS2 GCC는 `gcc.exe`가
   띄우는 `cc1.exe`가 필요한 DLL을 PATH에서 찾기 때문에, 이게 없으면 `--version`은 되는데 실제 컴파일은 실패합니다.
 
-- id가 `"gcc"`인 옵션은 버전 출력에 `"clang"`이라는 문자열이 포함되면 건너뜁니다.
-  macOS의 `/usr/bin/gcc`가 실제로는 Apple clang의 별칭이라, 그대로 두면 진짜 GCC가 없는데도
-  "GNU GCC 사용 가능"으로 오탐되기 때문입니다.
+- 버전 확인 명령이 성공해도 `Toolchain.versionMismatch()`가 그 출력을 거부하면 건너뜁니다.
+  예를 들어 `toolchain: gcc`는 버전 출력에 `"clang"`이 포함되면 건너뜁니다. macOS의 `/usr/bin/gcc`가 실제로는
+  Apple clang의 별칭이라, 그대로 두면 진짜 GCC가 없는데도 "GNU GCC 사용 가능"으로 오탐되기 때문입니다.
+- `ResolvedCompiler`는 id/label/실행 파일 경로와 함께 그 컴파일러의 `Language`와 `Toolchain`을 들고 있어서,
+  `CompilerService`는 이것만 보고 어떤 파일 이름과 인자로 컴파일할지 정합니다.
 - `resolve(id)`가 이 프로젝트에서 유일하게 사용자 입력을 실제 실행 파일 경로로 바꿔주는 지점입니다.
   등록되지 않았거나 사용 불가능한 id면 `IllegalArgumentException`을 던집니다 — 사용자가 보낸
   임의 문자열이 그대로 `ProcessBuilder` 커맨드로 흘러들어가는 것(명령어 인젝션)을 막는 화이트리스트 역할.
@@ -76,28 +82,31 @@ CORS 허용 설정(`@CrossOrigin`)은 일부러 두지 않습니다. 화면은 �
 ## `CompilerService`
 **파일**: [`backend/src/main/java/.../service/CompilerService.java`](../backend/src/main/java/com/compareopt/optvisualizer/service/CompilerService.java)
 
-이 프로젝트의 핵심 로직. 선택된 컴파일러(clang/gcc)를 서브프로세스로 호출해서 실제 컴파일(및 옵트인 시 실행)을 수행합니다.
+이 프로젝트의 핵심 로직. 선택된 컴파일러를 서브프로세스로 호출해서 실제 컴파일(및 옵트인 시 실행)을 수행합니다.
+언어·컴파일러마다 달라지는 소스 파일 이름, 레벨 목록, 컴파일러 인자는 직접 정하지 않고
+`ResolvedCompiler`가 들고 있는 `Language`와 `Toolchain`에서 받아 씁니다. 아래 명령 예시는 지금 등록된
+clang/gcc(`GccStyleToolchain`) 기준입니다.
 
 ### `compareOptimizationLevels(String sourceCode, String compilerId, boolean runBenchmark) : List<OptimizationResult>`
 전체 흐름을 총괄하는 메서드.
-1. `CompilerRegistry.resolve(compilerId)`로 사용할 컴파일러의 실제 경로를 얻음 (실패 시 예외)
+1. `CompilerRegistry.resolve(compilerId)`로 사용할 컴파일러의 실제 경로, 언어, toolchain을 얻음 (실패 시 예외)
 2. `Files.createTempDirectory()`로 임시 작업 디렉터리 생성
-3. 사용자 코드를 `input.c`로 저장
-4. `LEVELS = ["O0", "O1", "O2", "O3"]`를 순회하며 각각 `runOneLevel()` 호출, 결과에 `setCompilerInfo()`로 어떤 컴파일러를 썼는지 기록
-5. 예외 발생 시(임시 디렉터리 생성 실패 등) 4개 레벨 모두 실패 결과로 채움
+3. 사용자 코드를 `Language.sourceFileName()`(C는 `input.c`)으로 저장
+4. `Toolchain.levels()`(clang/gcc는 `["O0", "O1", "O2", "O3"]`)를 순회하며 각각 `runOneLevel()` 호출, 결과에 `setCompilerInfo()`로 어떤 컴파일러를 썼는지 기록
+5. 예외 발생 시(임시 디렉터리 생성 실패 등) 모든 레벨을 실패 결과로 채움
 6. `finally` 블록에서 `cleanup()`으로 임시 파일 반드시 삭제
 
 ### `runOneLevel(...) : OptimizationResult` (private)
 특정 최적화 레벨 하나에 대한 컴파일(및 옵트인 시 실행 벤치마크)을 수행.
-1. `{compiler} -S -O{level} input.c -o out.s` 실행 → 어셈블리 생성
+1. `Toolchain.assemblyArgs()`로 어셈블리 생성 (`{compiler} -S -O{level} input.c -o out.s`)
    - 실패 시 컴파일러 출력을 그대로 담아 `OptimizationResult.failure()` 반환
-2. `{compiler} -c -O{level} input.c -o out.o` 실행 → 오브젝트 파일 생성 (크기 비교용, `main()` 없어도 동작)
+2. `Toolchain.objectArgs()`로 오브젝트 파일 생성 (`{compiler} -c -O{level} input.c -o out.o`, 크기 비교용, `main()` 없어도 동작)
 3. 오브젝트 파일 크기(`Files.size()`)를 읽고, 실패해도 무시(0으로 처리)하고 계속 진행
 4. 어셈블리 파일 내용을 문자열로 읽어서(줄바꿈은 `\n`으로 통일) `OptimizationResult.success()` 생성
 5. `runBenchmark=true`면 `benchmarkExecution()`을 호출해 실행 시간을 결과에 붙임
 
 ### `benchmarkExecution(...) : ExecutionOutcome` (private)
-`{compiler} -O{level} input.c -o out.exe`로 링크를 시도한 뒤(성공해야 `main()`이 있다는 뜻),
+`Toolchain.executableArgs()`(`{compiler} -O{level} input.c -o out.exe`)로 링크를 시도한 뒤(성공해야 `main()`이 있다는 뜻),
 실행 파일을 `BENCHMARK_RUNS`(5)번 실행해서 걸린 시간(나노초) 중 최솟값을 채택합니다.
 - 링크 실패(대개 `main()` 없음) 시 컴파일 자체는 성공으로 두고 `executionError`만 채움 — 순수 함수만
   있는 코드에서도 어셈블리/크기 비교는 그대로 볼 수 있게 하기 위함
@@ -106,7 +115,7 @@ CORS 허용 설정(`@CrossOrigin`)은 일부러 두지 않습니다. 화면은 �
 - 한 번이라도 `EXECUTION_TIMEOUT_SECONDS`(5초) 안에 끝나지 않으면 즉시 타임아웃 에러로 처리
 - 실행 파일 이름은 OS와 무관하게 `out-O{n}.exe` (Windows는 확장자가 필요하고, 다른 OS는 있어도 무해)
 
-### `runCompiler(Path workDir, ResolvedCompiler compiler, String... args) : ProcessResult` (private)
+### `runCompiler(Path workDir, ResolvedCompiler compiler, List<String> args) : ProcessResult` (private)
 컴파일러를 임시 작업 디렉터리 **안에서** 실행하는 헬퍼. 실제 프로세스 실행은 `ProcessRunner.run()`에 위임.
 - 작업 디렉터리를 `workDir`로 두고 파일은 상대 경로(`input.c`, `out-O0.s`)로만 넘김. 그래서 에러 메시지에
   서버 임시 디렉터리의 절대 경로 대신 `input.c:1:16: error: ...`처럼 파일 이름만 찍히고(별도 치환 불필요),
@@ -119,6 +128,42 @@ CORS 허용 설정(`@CrossOrigin`)은 일부러 두지 않습니다. 화면은 �
 파일을 먼저 지우고 디렉터리를 나중에 지워야 하므로 경로를 역순 정렬 후 삭제.
 Windows에서는 방금 종료된 실행 파일이 백신 검사 등으로 잠깐 잠겨 삭제가 실패할 수 있어서,
 남은 파일이 있으면 100ms 간격으로 최대 3번까지 다시 시도.
+
+---
+
+## `toolchain` 패키지 — 언어/컴파일러마다 다른 부분
+**파일**: [`toolchain/Language.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/Language.java),
+[`toolchain/ToolchainKind.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/ToolchainKind.java),
+[`toolchain/Toolchain.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/Toolchain.java),
+[`toolchain/GccStyleToolchain.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/GccStyleToolchain.java)
+
+`platform` 패키지가 OS 차이를 모아두듯, 이 패키지는 언어와 컴파일러 계열의 차이를 모아둡니다.
+`CompilerService`에는 `if (gcc)`나 `if (rust)` 같은 분기를 두지 않고, 새 언어/컴파일러는 이 패키지에 추가합니다.
+
+### `Language` (enum)
+`application.yml`의 `language` 값 (지금은 `C`만 있음). 소스 파일 이름(`sourceFileName()`, C는 `input.c`)만 정합니다.
+컴파일러가 확장자로 언어를 판단하기 때문에 언어마다 파일 이름이 다릅니다.
+
+### `ToolchainKind` (enum)
+`application.yml`의 `toolchain` 값. 각 값은 `toolchain()`으로 실제 `Toolchain` 구현을 돌려줍니다.
+- `CLANG`: `GccStyleToolchain`, 버전 출력 확인 없음
+- `GCC`: `GccStyleToolchain`, 버전 출력에 `clang`이 보이면 거부 (macOS의 clang 별칭 `gcc`를 걸러냄)
+
+실행 파일 이름은 정하지 않으므로, 같은 계열이라도 언어에 따라 다른 실행 파일(예: `clang` / `clang++`)을
+`candidates`에 적어주면 됩니다.
+
+### `Toolchain` (interface)
+컴파일러 계열마다 달라지는 "명령줄 만드는 법". 돌려주는 인자에는 실행 파일 경로를 넣지 않습니다
+(경로는 `CompilerRegistry`가 찾아서 `CompilerService`가 맨 앞에 붙임). 파일 이름은 모두 작업 디렉터리 기준 상대 경로입니다.
+- `levels()`: 비교할 최적화 레벨 id 목록. 결과도 이 순서로 만들어짐
+- `versionArgs()` / `versionMismatch(output)`: 설치 확인에 쓸 인자와, 그 출력이 이 계열의 컴파일러가 맞는지 판정
+  (맞으면 empty, 아니면 건너뛰는 이유 — 시작 로그에 남음)
+- `assemblyArgs()` / `objectArgs()` / `executableArgs()`: 어셈블리, 오브젝트 파일(진입점 없어도 성공해야 함),
+  실행 파일(진입점 없으면 실패해도 됨 — 실행 측정만 건너뜀)을 만드는 인자
+
+### `GccStyleToolchain`
+clang과 GCC처럼 GCC식 명령줄(`-S`, `-c`, `-O2`)을 쓰는 컴파일러. 레벨은 `O0`~`O3`.
+`ToolchainKind`를 통해서만 만들어지도록 패키지 밖에는 공개하지 않습니다.
 
 ---
 

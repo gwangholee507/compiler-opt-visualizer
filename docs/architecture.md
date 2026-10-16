@@ -13,11 +13,13 @@
    │  3. @Valid 로 코드 검증 (비어있음/20,000자 초과 시 400 에러)
    ▼
 [backend] CompilerService.compareOptimizationLevels(code, compilerId, runBenchmark)
-   │  4. CompilerRegistry.resolve(compilerId) 로 요청받은 id를 실제 실행 파일 경로로 변환
+   │  4. CompilerRegistry.resolve(compilerId) 로 요청받은 id를 실제 실행 파일 경로 + 언어(Language) +
+   │     명령줄 규칙(Toolchain)으로 변환
    │       (모르는 id거나 서버에 설치 안 돼 있으면 400 에러 — 사용자 입력을 커맨드에 그대로 쓰지 않음)
-   │  5. 임시 디렉터리 생성 → input.c 로 저장
-   │  6. O0, O1, O2, O3 각각에 대해 runOneLevel() 반복 호출
+   │  5. 임시 디렉터리 생성 → 언어별 파일 이름(C는 input.c)으로 저장
+   │  6. Toolchain이 정한 레벨(clang/gcc는 O0~O3) 각각에 대해 runOneLevel() 반복 호출
    │       (컴파일러 실행은 전부 platform.ProcessRunner를 거침 — 임시 디렉터리를 작업 디렉터리로 두고 실행)
+   │       (인자는 Toolchain이 만듦 — 아래는 clang/gcc 기준)
    │       - {compiler} -S -O{n} → 어셈블리(.s) 생성
    │       - {compiler} -c -O{n} → 오브젝트 파일(.o) 생성 (크기 비교용)
    │       - runBenchmark=true면 {compiler} -O{n} → 실행 파일(.exe) 링크 후 5회 실행,
@@ -60,6 +62,8 @@
 
 `CompilerRegistry`가 `application.yml`의 `compiler.options`에 정의된 후보(예: gcc는 `gcc-16`, `gcc-15`, ...)를
 서버 시작 시 한 번씩 `--version` 실행해보고 실제로 동작하는 것만 "사용 가능"으로 표시합니다.
+각 컴파일러에는 언어(`language: c`)와 컴파일러 계열(`toolchain: clang` / `gcc`)도 함께 적어두며,
+어떤 파일 이름과 인자로 컴파일할지는 이 두 값으로 정해집니다 (아래 "언어/컴파일러마다 다른 부분" 참고).
 후보는 PATH에 있는 실행 파일 이름일 수도, 절대 경로일 수도 있고, 특정 OS에서만 시도하는 후보
 (`os-candidates`, 예: Windows의 `C:\msys64\ucrt64\bin\gcc.exe`)도 따로 둘 수 있습니다.
 프론트엔드는 요청 시 `id`(예: `"gcc"`)만 넘기고, 실제 실행 파일 경로로의 변환은 항상 이 레지스트리를
@@ -95,6 +99,23 @@ CI([ci.yml](../.github/workflows/ci.yml))는 Ubuntu, macOS, Windows 세 곳에�
 
 > 생성되는 **어셈블리 자체**는 OS마다 다른 것이 정상입니다. 실행 파일 형식(Mach-O / ELF / PE)과
 > 함수 호출 규약이 OS마다 다르기 때문이며, 이건 숨기지 않고 그대로 보여줍니다.
+
+## 언어/컴파일러마다 다른 부분은 어디서 처리하나요?
+
+OS 차이를 `platform` 패키지에 모아둔 것과 같은 원칙으로, 언어와 컴파일러 계열의 차이는 `toolchain` 패키지에 모아둡니다.
+`CompilerService`는 임시 디렉터리, 시간 제한, 실행 시간 측정처럼 모든 컴파일러에 공통인 흐름만 맡습니다.
+
+| 언어/컴파일러마다 다른 것 | 처리하는 곳 |
+|---|---|
+| 소스 파일 이름 (`input.c`) | `Language` (`application.yml`의 `language`) |
+| 최적화 레벨 목록 (`O0`~`O3`) | `Toolchain.levels()` |
+| 어셈블리·오브젝트·실행 파일을 만드는 인자 (`-S -O2 ...`) | `Toolchain`의 `assemblyArgs()` / `objectArgs()` / `executableArgs()` |
+| 설치 확인 방법과 "진짜 그 컴파일러인지" 판정 | `Toolchain.versionArgs()` / `versionMismatch()` |
+
+어떤 `Toolchain` 구현을 쓸지는 `application.yml`의 `toolchain` 값(`ToolchainKind`)으로 정합니다.
+지금은 clang과 gcc 모두 GCC식 명령줄을 쓰는 `GccStyleToolchain` 하나를 공유합니다.
+새 언어나 컴파일러가 필요해지면 `CompilerService`에 `if (rust)`를 넣는 대신 이 패키지에 추가해주세요.
+자세한 내용은 [backend.md](./backend.md#toolchain-패키지--언어컴파일러마다-다른-부분) 참고.
 
 ## 왜 오브젝트 파일(.o)로 크기를 재나요?
 
