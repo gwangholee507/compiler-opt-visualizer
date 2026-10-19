@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringJUnitConfig(initializers = ConfigDataApplicationContextInitializer.class)
 @EnableConfigurationProperties(CompilerProperties.class)
 // 테스트를 돌리는 사람의 환경 변수(OPTVIS_CLANG 등)에 결과가 좌우되지 않도록 비워둔다.
-@TestPropertySource(properties = {"OPTVIS_CLANG=", "OPTVIS_GCC="})
+@TestPropertySource(properties = {"OPTVIS_CLANG=", "OPTVIS_GCC=", "OPTVIS_CLANGXX=", "OPTVIS_GXX="})
 class CompilerPropertiesTest {
 
     @Autowired
@@ -31,7 +31,7 @@ class CompilerPropertiesTest {
     @Test
     void application_yml의_컴파일러_목록이_바인딩된다() {
         assertThat(properties.getOptions()).extracting(CompilerProperties.Option::getId)
-                .containsExactly("clang", "gcc");
+                .containsExactly("clang", "gcc", "clangxx", "gxx");
     }
 
     @Test
@@ -40,6 +40,19 @@ class CompilerPropertiesTest {
         assertThat(option("clang").getToolchain()).isEqualTo(ToolchainKind.CLANG);
         assertThat(option("gcc").getLanguage()).isEqualTo(Language.C);
         assertThat(option("gcc").getToolchain()).isEqualTo(ToolchainKind.GCC);
+        assertThat(option("clangxx").getLanguage()).isEqualTo(Language.CPP);
+        assertThat(option("clangxx").getToolchain()).isEqualTo(ToolchainKind.CLANG);
+        assertThat(option("gxx").getLanguage()).isEqualTo(Language.CPP);
+        assertThat(option("gxx").getToolchain()).isEqualTo(ToolchainKind.GCC);
+    }
+
+    @Test
+    void C_plus_plus_컴파일러는_C_plus_plus용_실행_파일을_후보로_쓴다() {
+        assertThat(option("clangxx").candidatesFor(HostOs.LINUX)).containsExactly("clang++");
+        assertThat(option("gxx").candidatesFor(HostOs.MACOS)).startsWith("g++-16").endsWith("g++");
+        assertThat(option("clangxx").candidatesFor(HostOs.WINDOWS))
+                .contains("C:\\msys64\\ucrt64\\bin\\clang++.exe", "C:\\Program Files\\LLVM\\bin\\clang++.exe");
+        assertThat(option("gxx").candidatesFor(HostOs.WINDOWS)).contains("C:\\msys64\\ucrt64\\bin\\g++.exe");
     }
 
     @Test

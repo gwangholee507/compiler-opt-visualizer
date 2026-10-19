@@ -3,6 +3,7 @@ package com.compareopt.optvisualizer.service;
 import com.compareopt.optvisualizer.dto.OptimizationResult;
 import com.compareopt.optvisualizer.platform.ProcessResult;
 import com.compareopt.optvisualizer.platform.ProcessRunner;
+import com.compareopt.optvisualizer.toolchain.OptLevel;
 import com.compareopt.optvisualizer.toolchain.Toolchain;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,7 +55,7 @@ public class CompilerService {
 
     public List<OptimizationResult> compareOptimizationLevels(String sourceCode, String compilerId, boolean runBenchmark) {
         CompilerRegistry.ResolvedCompiler compiler = compilerRegistry.resolve(compilerId);
-        List<String> levels = compiler.toolchain().levels();
+        List<OptLevel> levels = compiler.toolchain().levels();
 
         List<OptimizationResult> results = new ArrayList<>();
         Path workDir = null;
@@ -62,14 +63,14 @@ public class CompilerService {
             workDir = Files.createTempDirectory("opt-visualizer-");
             Files.writeString(workDir.resolve(compiler.language().sourceFileName()), sourceCode, StandardCharsets.UTF_8);
 
-            for (String level : levels) {
+            for (OptLevel level : levels) {
                 OptimizationResult result = runOneLevel(workDir, level, compiler, runBenchmark);
                 result.setCompilerInfo(compiler.id(), compiler.label());
                 results.add(result);
             }
         } catch (IOException e) {
             log.error("임시 작업 디렉터리 생성 실패", e);
-            for (String level : levels) {
+            for (OptLevel level : levels) {
                 OptimizationResult failure = OptimizationResult.failure(level, "서버 내부 오류: " + e.getMessage(), 0);
                 failure.setCompilerInfo(compiler.id(), compiler.label());
                 results.add(failure);
@@ -80,13 +81,13 @@ public class CompilerService {
         return results;
     }
 
-    private OptimizationResult runOneLevel(Path workDir, String level,
+    private OptimizationResult runOneLevel(Path workDir, OptLevel level,
                                             CompilerRegistry.ResolvedCompiler compiler, boolean runBenchmark) {
         long start = System.currentTimeMillis();
         Toolchain toolchain = compiler.toolchain();
         String sourceName = compiler.language().sourceFileName();
-        String asmName = "out-" + level + ".s";
-        String objName = "out-" + level + ".o";
+        String asmName = "out-" + level.id() + ".s";
+        String objName = "out-" + level.id() + ".o";
 
         // 1) 어셈블리 생성 (예: {compiler} -S -O{n} input.c -o out.s)
         ProcessResult asmResult = runCompiler(workDir, compiler, toolchain.assemblyArgs(level, sourceName, asmName));
@@ -135,9 +136,9 @@ public class CompilerService {
      * main()이 없는 코드는 링크에 실패하므로 이 경우 에러 메시지만 채우고 조용히 넘어간다
      * (컴파일 자체는 성공했으므로 전체 결과를 실패로 처리하지 않음).
      */
-    private ExecutionOutcome benchmarkExecution(Path workDir, String level, CompilerRegistry.ResolvedCompiler compiler) {
+    private ExecutionOutcome benchmarkExecution(Path workDir, OptLevel level, CompilerRegistry.ResolvedCompiler compiler) {
         // 확장자 .exe는 Windows에서 실행 파일로 인식되려면 필요하고, macOS/Linux에서는 있어도 무해하다.
-        String exeName = "out-" + level + ".exe";
+        String exeName = "out-" + level.id() + ".exe";
         Path exeFile = workDir.resolve(exeName);
 
         String sourceName = compiler.language().sourceFileName();

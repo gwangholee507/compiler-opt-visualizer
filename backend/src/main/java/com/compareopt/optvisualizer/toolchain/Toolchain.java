@@ -13,8 +13,8 @@ import java.util.Optional;
  */
 public interface Toolchain {
 
-    /** 비교할 최적화 레벨 id 목록. 결과도 이 순서대로 만들어진다. */
-    List<String> levels();
+    /** 비교할 최적화 레벨 목록. 결과도 이 순서대로 만들어지고, 화면은 첫 번째 레벨을 비교 기준으로 삼는다. */
+    List<OptLevel> levels();
 
     /** 설치 여부를 확인할 때 실행 파일 뒤에 붙일 인자. 종료 코드가 0이면 일단 실행 가능한 것으로 본다. */
     List<String> versionArgs();
@@ -26,11 +26,11 @@ public interface Toolchain {
     Optional<String> versionMismatch(String versionOutput);
 
     /** 어셈블리 파일을 만드는 인자. */
-    List<String> assemblyArgs(String level, String sourceFile, String outputFile);
+    List<String> assemblyArgs(OptLevel level, String sourceFile, String outputFile);
 
     /** 크기 비교용 오브젝트 파일을 만드는 인자. main() 같은 진입점이 없는 코드에서도 성공해야 한다. */
-    List<String> objectArgs(String level, String sourceFile, String outputFile);
+    List<String> objectArgs(OptLevel level, String sourceFile, String outputFile);
 
     /** 실행 시간 측정용 실행 파일을 만드는 인자. 진입점이 없으면 실패해도 된다 (실행 측정만 건너뜀). */
-    List<String> executableArgs(String level, String sourceFile, String outputFile);
+    List<String> executableArgs(OptLevel level, String sourceFile, String outputFile);
 }

@@ -15,18 +15,26 @@ class GccStyleToolchainTest {
 
     @Test
     void 레벨은_O0부터_O3까지_순서대로다() {
-        assertThat(clang.levels()).containsExactly("O0", "O1", "O2", "O3");
-        assertThat(gcc.levels()).containsExactly("O0", "O1", "O2", "O3");
+        assertThat(clang.levels()).extracting(OptLevel::id).containsExactly("O0", "O1", "O2", "O3");
+        assertThat(gcc.levels()).extracting(OptLevel::id).containsExactly("O0", "O1", "O2", "O3");
+    }
+
+    @Test
+    void 레벨마다_화면에_보여줄_이름과_설명이_있다() {
+        assertThat(clang.levels()).extracting(OptLevel::label).containsExactly("-O0", "-O1", "-O2", "-O3");
+        assertThat(clang.levels()).allSatisfy(level -> assertThat(level.description()).isNotBlank());
     }
 
     @Test
     void 어셈블리_오브젝트_실행파일_인자를_GCC식으로_만든다() {
-        assertThat(clang.assemblyArgs("O2", "input.c", "out-O2.s"))
+        OptLevel o2 = clang.levels().get(2);
+
+        assertThat(clang.assemblyArgs(o2, "input.c", "out-O2.s"))
                 .containsExactly("-S", "-O2", "input.c", "-o", "out-O2.s");
-        assertThat(clang.objectArgs("O2", "input.c", "out-O2.o"))
+        assertThat(clang.objectArgs(o2, "input.c", "out-O2.o"))
                 .containsExactly("-c", "-O2", "input.c", "-o", "out-O2.o");
-        assertThat(clang.executableArgs("O2", "input.c", "out-O2.exe"))
-                .containsExactly("-O2", "input.c", "-o", "out-O2.exe");
+        assertThat(clang.executableArgs(o2, "input.cpp", "out-O2.exe"))
+                .containsExactly("-O2", "input.cpp", "-o", "out-O2.exe");
     }
 
     @Test
