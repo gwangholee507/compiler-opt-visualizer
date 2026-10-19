@@ -43,8 +43,8 @@ Compiler Explorer를 대체하려는 도구가 아니라, "최적화 레벨이 �
 - **무엇:** 어셈블리 diff와 함께 레벨별 **오브젝트 파일 크기, 컴파일 시간, (옵션) 실행 시간**을 나란히 보여줍니다.
 - **다른 도구는:** compopt·asmdiff는 어셈블리(와 명령어 수)만, Quick Bench는 실행 시간만 다룹니다.
   Compiler Explorer는 창마다 컴파일 지표를 보여주지만 레벨 간 실행 시간 비교는 없습니다.
-- **근거:** 크기는 `-c`로 만든 오브젝트 파일 크기([CompilerService.java:107](../backend/src/main/java/com/compareopt/optvisualizer/service/CompilerService.java:107)),
-  실행 시간은 5번 실행한 값 중 최솟값([CompilerService.java:153](../backend/src/main/java/com/compareopt/optvisualizer/service/CompilerService.java:153))입니다.
+- **근거:** 크기는 `-c`로 만든 오브젝트 파일 크기([CompilerService.java:108](../backend/src/main/java/com/compareopt/optvisualizer/service/CompilerService.java:108)),
+  실행 시간은 5번 실행한 값 중 최솟값([CompilerService.java:154](../backend/src/main/java/com/compareopt/optvisualizer/service/CompilerService.java:154))입니다.
 - **내세울 때:** [optimization-levels.md](./optimization-levels.md)에 적은 **"O3가 항상 O2보다 빠르지는 않고, 크기는 커진다"**를
   사용자가 같은 화면에서 직접 확인할 수 있다는 점이 학습용 도구로서의 핵심 메시지입니다.
 
@@ -86,7 +86,7 @@ Compiler Explorer를 대체하려는 도구가 아니라, "최적화 레벨이 �
 | 원문 줄 단위 비교 | 레지스터 이름만 바뀌어도 줄 전체가 "추가됨"으로 표시됨 | — |
 | 소스↔어셈블리 줄 연결 없음 | 어셈블리 어느 부분이 소스 어느 줄인지 학습자가 직접 찾아야 함 | Compiler Explorer의 핵심 기능 |
 | 최적화 종류 설명 없음 | "왜 이렇게 바뀌었나"에 답하지 못함 | compopt의 `annotate`, OptView2 |
-| C·단일 파일·호스트 아키텍처만, `-Os`/`-Oz` 없음 | 크기 비교 강점을 살릴 레벨이 빠져 있음 | asmdiff는 여러 타깃 지원 |
+| C/C++·단일 파일·호스트 아키텍처만, `-Os`/`-Oz` 없음 | 크기 비교 강점을 살릴 레벨이 빠져 있음 | asmdiff는 여러 타깃 지원 |
 
 ## 향후 발전 방향 (프로젝트 완성 후 검토)
 

@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/gwangholee507/compiler-opt-visualizer/actions/workflows/ci.yml/badge.svg)](https://github.com/gwangholee507/compiler-opt-visualizer/actions/workflows/ci.yml)
 
-C 코드를 입력하면 **선택한 컴파일러**(Clang 또는 GNU GCC)의 최적화 레벨(`-O0`~`-O3`)을 각각 적용해서
+C 또는 C++ 코드를 입력하면 **선택한 컴파일러**(Clang/GNU GCC, C++은 Clang++/GNU G++)의 최적화 레벨(`-O0`~`-O3`)을 각각 적용해서
 **어셈블리 코드가 어떻게 달라지는지, 컴파일된 코드 크기와 컴파일 시간, (옵션으로) 실제 실행 시간이
 얼마나 차이 나는지**를 네 개 열로 나란히 보여주는 웹앱입니다.
 
@@ -13,8 +13,8 @@ C 코드를 입력하면 **선택한 컴파일러**(Clang 또는 GNU GCC)의 최
 - `-O0` 대비 `-O1`~`-O3`에서 바뀐 어셈블리 줄이 초록색으로 강조되어, 최적화가
   코드의 어느 부분을 어떻게 바꿨는지 바로 눈에 들어옵니다.
 - 각 레벨별 **오브젝트 파일 크기**와 **컴파일 시간**을 함께 비교합니다.
-- **컴파일러를 Clang/GCC 중에서 골라서** 같은 코드를 서로 다른 컴파일러가 어떻게 최적화하는지 비교할 수 있습니다.
-- (옵션) **실행 시간 측정**을 켜면 `main()`이 있는 코드를 실제로 링크·실행해서 O0~O3 간 실행 속도 차이까지 볼 수 있습니다.
+- **언어(C/C++)와 컴파일러(Clang/GCC)를 골라서** 같은 코드를 서로 다른 컴파일러가 어떻게 최적화하는지 비교할 수 있습니다.
+- (옵션) **실행 시간 측정**을 켜면 `main()`이 있는 코드를 실제로 링크·실행해서 최적화 레벨 간 실행 속도 차이까지 볼 수 있습니다.
 - 문법 오류가 있는 코드를 넣으면 컴파일러의 원본 에러 메시지를 그대로 보여줍니다.
 
 예를 들어 `square(int x) { return x * x; }` 같은 함수는 `-O0`에서는 스택에 값을
@@ -25,9 +25,9 @@ C 코드를 입력하면 **선택한 컴파일러**(Clang 또는 GNU GCC)의 최
 
 | 영역 | 구성 |
 |---|---|
-| Backend | Spring Boot (Java 17), `clang`/`gcc`를 서브프로세스로 호출해 컴파일·실행 수행 |
+| Backend | Spring Boot (Java 17), `clang`/`gcc`(C++은 `clang++`/`g++`)를 서브프로세스로 호출해 컴파일·실행 수행 |
 | Frontend | React + Vite |
-| Compiler | 서버를 실행하는 PC에 설치된 clang + 선택적으로 GNU GCC (macOS, Linux, Windows) |
+| Compiler | 서버를 실행하는 PC에 설치된 clang + 선택적으로 GNU GCC, C++ 컴파일러 (macOS, Linux, Windows) |
 | CI | GitHub Actions — Ubuntu, macOS, Windows에서 테스트 ([워크플로 정의](.github/workflows/ci.yml)) |
 
 ## 구조
@@ -50,14 +50,15 @@ macOS, Linux, Windows에서 실행할 수 있습니다 (CI가 세 OS 모두에�
 
 - JDK 17 이상
 - C 컴파일러: `clang`, 그리고 선택적으로 GNU GCC (설치하면 컴파일러 드롭다운에서 고를 수 있음)
+- (선택) C++ 컴파일러: `clang++`, `g++` (설치하면 언어 드롭다운에서 C++을 고를 수 있음)
 
 실행만 할 때는 이 두 가지면 됩니다. Maven과 Node.js는 따로 설치하지 않아도 됩니다.
 
 | OS | 컴파일러 설치 |
 |---|---|
-| macOS | `xcode-select --install` (clang), `brew install gcc` (GCC, 선택) |
-| Ubuntu/Debian | `sudo apt-get install clang` (clang), `sudo apt-get install gcc` (GCC, 선택) |
-| Windows | [MSYS2](https://www.msys2.org/) 설치 후 UCRT64 터미널에서 `pacman -S mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-gcc` |
+| macOS | `xcode-select --install` (clang, clang++), `brew install gcc` (GCC와 g++, 선택) |
+| Ubuntu/Debian | `sudo apt-get install clang` (clang, clang++), `sudo apt-get install gcc g++` (GCC와 g++, 선택) |
+| Windows | [MSYS2](https://www.msys2.org/) 설치 후 UCRT64 터미널에서 `pacman -S mingw-w64-ucrt-x86_64-clang mingw-w64-ucrt-x86_64-gcc` (C++ 컴파일러 포함) |
 
 > Windows에서 MSYS2를 기본 위치(`C:\msys64`)에 설치했다면 PATH를 따로 설정하지 않아도 서버가 알아서 찾습니다.
 > 다른 방법으로 설치했거나 인식이 안 될 때는 [사용자 가이드의 Windows 안내](docs/user-guide.md#windows에서-컴파일러-준비하기)를 참고하세요.
@@ -84,7 +85,7 @@ cd backend
 
 마찬가지로 `http://localhost:8080`을 엽니다. (처음 실행할 때는 내려받을 것이 많아 몇 분 걸릴 수 있습니다.)
 
-> 서버는 기본적으로 **이 PC에서 오는 접속만** 받습니다. 받은 C 코드를 컴파일하고 실행까지 하는 프로그램이라,
+> 서버는 기본적으로 **이 PC에서 오는 접속만** 받습니다. 받은 코드를 컴파일하고 실행까지 하는 프로그램이라,
 > 같은 네트워크의 다른 기기가 접속할 수 없도록 한 것입니다. 포트를 바꾸려면 끝에 `--server.port=9090`을 붙입니다.
 
 ## 개발할 때

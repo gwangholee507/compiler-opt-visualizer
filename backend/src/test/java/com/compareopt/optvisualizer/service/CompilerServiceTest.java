@@ -7,6 +7,8 @@ import com.compareopt.optvisualizer.toolchain.Language;
 import com.compareopt.optvisualizer.toolchain.ToolchainKind;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -25,8 +27,9 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  *
  * macOS/Linux/Windows 어디서든 clang이 설치되어 있어야 통과한다 (CI는 세 OS 모두에서 돌린다).
  * 그래서 검증 내용도 특정 OS의 경로나 심볼 표기에 기대지 않도록 작성한다.
- * gcc 관련 테스트는 서버에 실제 GNU GCC가 없으면 (macOS의 gcc는 clang 별칭이라 toolchain: gcc가
- * 걸러냄) assumeTrue로 건너뛴다.
+ * gcc와 C++(clangxx, gxx) 테스트는 그 컴파일러가 없으면 건너뛴다 (macOS의 gcc/g++는 clang 별칭이라
+ * toolchain: gcc가 걸러냄). 단, CI가 OPTVIS_REQUIRED_COMPILERS로 필수 지정한 컴파일러는 없으면 실패한다
+ * (RequiredCompilers 참고).
  */
 class CompilerServiceTest {
 
@@ -36,21 +39,13 @@ class CompilerServiceTest {
     @BeforeEach
     void setUp() {
         CompilerProperties properties = new CompilerProperties();
-        CompilerProperties.Option clang = new CompilerProperties.Option();
-        clang.setId("clang");
-        clang.setLabel("Clang (LLVM)");
-        clang.setLanguage(Language.C);
-        clang.setToolchain(ToolchainKind.CLANG);
-        clang.setCandidates(List.of("clang"));
-
-        CompilerProperties.Option gcc = new CompilerProperties.Option();
-        gcc.setId("gcc");
-        gcc.setLabel("GNU GCC");
-        gcc.setLanguage(Language.C);
-        gcc.setToolchain(ToolchainKind.GCC);
-        gcc.setCandidates(List.of("gcc-16", "gcc-15", "gcc-14", "gcc-13", "gcc-12", "gcc"));
-
-        properties.setOptions(List.of(clang, gcc));
+        properties.setOptions(List.of(
+                option("clang", "Clang (LLVM)", Language.C, ToolchainKind.CLANG, "clang"),
+                option("gcc", "GNU GCC", Language.C, ToolchainKind.GCC,
+                        "gcc-16", "gcc-15", "gcc-14", "gcc-13", "gcc-12", "gcc"),
+                option("clangxx", "Clang++ (LLVM)", Language.CPP, ToolchainKind.CLANG, "clang++"),
+                option("gxx", "GNU G++", Language.CPP, ToolchainKind.GCC,
+                        "g++-16", "g++-15", "g++-14", "g++-13", "g++-12", "g++")));
         ProcessRunner processRunner = new ProcessRunner();
         registry = new CompilerRegistry(properties, processRunner);
         compilerService = new CompilerService(registry, processRunner);
@@ -65,8 +60,12 @@ class CompilerServiceTest {
         assertThat(results).hasSize(4);
         assertThat(results).extracting(OptimizationResult::getLevel)
                 .containsExactly("O0", "O1", "O2", "O3");
+        // 화면은 레벨 이름과 설명을 결과에서 그대로 가져다 쓴다
+        assertThat(results).extracting(OptimizationResult::getLevelLabel)
+                .containsExactly("-O0", "-O1", "-O2", "-O3");
         assertThat(results).allSatisfy(r -> {
             assertThat(r.isSuccess()).isTrue();
+            assertThat(r.getLevelDescription()).isNotBlank();
             assertThat(r.getCompilerId()).isEqualTo("clang");
             // macOS(Mach-O)는 심볼 앞에 '_'가 붙지만(_square) Linux(ELF)는 안 붙는다(square).
             // 플랫폼에 상관없이 통과해야 하므로 언더스코어 없는 쪽으로 검증한다.
@@ -167,7 +166,7 @@ class CompilerServiceTest {
 
     @Test
     void gcc가_설치되어_있으면_gcc로도_컴파일이_성공한다() {
-        assumeTrue(isAvailable("gcc"));
+        RequiredCompilers.assumeAvailable(registry, "gcc");
         String code = "int square(int x) { return x * x; }";
 
         List<OptimizationResult> results = compilerService.compareOptimizationLevels(code, "gcc", false);
@@ -186,14 +185,9 @@ class CompilerServiceTest {
         Path clangPath = findOnPath("clang");
         assumeTrue(clangPath != null);
 
-        CompilerProperties.Option clang = new CompilerProperties.Option();
-        clang.setId("clang");
-        clang.setLabel("Clang (LLVM)");
-        clang.setLanguage(Language.C);
-        clang.setToolchain(ToolchainKind.CLANG);
-        clang.setCandidates(List.of(clangPath.toString()));
         CompilerProperties properties = new CompilerProperties();
-        properties.setOptions(List.of(clang));
+        properties.setOptions(List.of(
+                option("clang", "Clang (LLVM)", Language.C, ToolchainKind.CLANG, clangPath.toString())));
         ProcessRunner processRunner = new ProcessRunner();
         CompilerRegistry absoluteRegistry = new CompilerRegistry(properties, processRunner);
         CompilerService service = new CompilerService(absoluteRegistry, processRunner);
@@ -212,12 +206,100 @@ class CompilerServiceTest {
         });
     }
 
-    private boolean isAvailable(String id) {
-        try {
-            return registry.resolve(id).available();
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
+    @ParameterizedTest
+    @ValueSource(strings = {"clangxx", "gxx"})
+    void C_plus_plus_코드는_O0부터_O3까지_모두_컴파일에_성공한다(String compilerId) {
+        RequiredCompilers.assumeAvailable(registry, compilerId);
+        String code = """
+                template <typename T>
+                T square(T x) { return x * x; }
+
+                struct Accumulator {
+                    int total = 0;
+                    void add(int x) { total += square(x); }
+                };
+
+                int sum_loop(int n) {
+                    Accumulator acc;
+                    for (int i = 0; i < n; i++) { acc.add(i); }
+                    return acc.total;
+                }
+                """;
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(code, compilerId, false);
+
+        assertThat(results).extracting(OptimizationResult::getLevel).containsExactly("O0", "O1", "O2", "O3");
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.isSuccess()).as(r.getErrorMessage()).isTrue();
+            assertThat(r.getCompilerId()).isEqualTo(compilerId);
+            // C++ 심볼은 맹글링되지만(_Z8sum_loopi) 원래 이름은 그 안에 그대로 들어 있다
+            assertThat(r.getAssembly()).contains("sum_loop");
+            assertThat(r.getBinarySizeBytes()).isGreaterThan(0);
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"clangxx", "gxx"})
+    void C_plus_plus_표준_헤더를_쓰는_코드도_컴파일된다(String compilerId) {
+        RequiredCompilers.assumeAvailable(registry, compilerId);
+        String code = """
+                #include <vector>
+
+                int sum(const std::vector<int>& values) {
+                    int total = 0;
+                    for (int v : values) { total += v; }
+                    return total;
+                }
+                """;
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(code, compilerId, false);
+
+        assertThat(results).allSatisfy(r -> assertThat(r.isSuccess()).as(r.getErrorMessage()).isTrue());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"clangxx", "gxx"})
+    void C_plus_plus_코드도_main이_있으면_실행_시간이_측정된다(String compilerId) {
+        // C++ 실행 파일은 C++ 표준 라이브러리까지 링크되어야 하고, MinGW의 g++로 만든 실행 파일은
+        // 실행할 때 그 라이브러리의 DLL도 찾을 수 있어야 한다.
+        RequiredCompilers.assumeAvailable(registry, compilerId);
+        String code = """
+                template <typename T>
+                T add(T a, T b) { return a + b; }
+                int main() { return add(1, 2) - 3; }
+                """;
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(code, compilerId, true);
+
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.isSuccess()).isTrue();
+            assertThat(r.getExecutionTimeMs()).as(r.getExecutionError()).isNotNull();
+        });
+    }
+
+    @Test
+    void C_plus_plus_문법_오류는_input_cpp_파일_이름으로_표시된다() {
+        RequiredCompilers.assumeAvailable(registry, "clangxx");
+        String brokenCode = "template <typename T> T f(T x) { retrun x; }\nint g() { return f(1); }";
+
+        List<OptimizationResult> results = compilerService.compareOptimizationLevels(brokenCode, "clangxx", false);
+
+        assertThat(results).allSatisfy(r -> {
+            assertThat(r.isSuccess()).isFalse();
+            assertThat(r.getErrorMessage()).contains("input.cpp");
+            assertThat(r.getErrorMessage()).doesNotContain("opt-visualizer-");
+        });
+    }
+
+    private static CompilerProperties.Option option(String id, String label, Language language,
+                                                    ToolchainKind toolchain, String... candidates) {
+        CompilerProperties.Option option = new CompilerProperties.Option();
+        option.setId(id);
+        option.setLabel(label);
+        option.setLanguage(language);
+        option.setToolchain(toolchain);
+        option.setCandidates(List.of(candidates));
+        return option;
     }
 
     /** PATH에서 실행 파일의 절대 경로를 찾는다 (Windows는 .exe가 붙은 이름도 확인). 없으면 null. */

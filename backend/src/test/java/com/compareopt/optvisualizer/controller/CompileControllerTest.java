@@ -3,6 +3,9 @@ package com.compareopt.optvisualizer.controller;
 import com.compareopt.optvisualizer.dto.OptimizationResult;
 import com.compareopt.optvisualizer.service.CompilerRegistry;
 import com.compareopt.optvisualizer.service.CompilerService;
+import com.compareopt.optvisualizer.toolchain.Language;
+import com.compareopt.optvisualizer.toolchain.OptLevel;
+import com.compareopt.optvisualizer.toolchain.ToolchainKind;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -38,15 +41,32 @@ class CompileControllerTest {
     private CompilerRegistry compilerRegistry;
 
     @Test
+    void 컴파일러_목록에는_언어가_함께_담기고_실행_파일_경로는_나가지_않는다() throws Exception {
+        when(compilerRegistry.listAll()).thenReturn(List.of(new CompilerRegistry.ResolvedCompiler(
+                "gxx", "GNU G++", Language.CPP, ToolchainKind.GCC.toolchain(), "/opt/gcc/bin/g++", true)));
+
+        mockMvc.perform(get("/api/compilers"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value("gxx"))
+                .andExpect(jsonPath("$[0].available").value(true))
+                .andExpect(jsonPath("$[0].language").value("cpp"))
+                .andExpect(jsonPath("$[0].languageLabel").value("C++"))
+                .andExpect(jsonPath("$[0].path").doesNotExist());
+    }
+
+    @Test
     void 정상적인_요청은_200과_결과_리스트를_반환한다() throws Exception {
+        OptLevel o0 = new OptLevel("O0", "-O0", "최적화 없음");
         when(compilerService.compareOptimizationLevels(anyString(), anyString(), anyBoolean()))
-                .thenReturn(List.of(OptimizationResult.success("O0", "ret", 100, 10)));
+                .thenReturn(List.of(OptimizationResult.success(o0, "ret", 100, 10)));
 
         mockMvc.perform(post("/api/compile")
                         .contentType("application/json")
                         .content("{\"code\":\"int f(){return 0;}\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].level").value("O0"))
+                .andExpect(jsonPath("$[0].levelLabel").value("-O0"))
+                .andExpect(jsonPath("$[0].levelDescription").value("최적화 없음"))
                 .andExpect(jsonPath("$[0].success").value(true));
     }
 
@@ -56,7 +76,7 @@ class CompileControllerTest {
                         .contentType("application/json")
                         .content("{\"code\":\"\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("C 코드를 입력해주세요."));
+                .andExpect(jsonPath("$.message").value("코드를 입력해주세요."));
     }
 
     @Test

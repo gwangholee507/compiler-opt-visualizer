@@ -47,7 +47,7 @@ header h1 {
   flex-wrap: wrap;
 }
 
-.compiler-select {
+.select-field {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -55,7 +55,7 @@ header h1 {
   color: #ccc;
 }
 
-.compiler-select select {
+.select-field select {
   padding: 0.35rem 0.6rem;
   border-radius: 6px;
   border: 1px solid #444;
@@ -107,6 +107,17 @@ header h1 {
 .editor-section button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* 보조 버튼: "비교하기"보다 눈에 덜 띄게 */
+.editor-section .reset-sample {
+  margin-left: auto;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 400;
+  border: 1px solid #444;
+  background: transparent;
+  color: #ccc;
 }
 
 .error-message {

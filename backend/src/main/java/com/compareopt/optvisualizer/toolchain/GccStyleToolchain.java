@@ -10,7 +10,16 @@ import java.util.Optional;
  */
 final class GccStyleToolchain implements Toolchain {
 
-    private static final List<String> LEVELS = List.of("O0", "O1", "O2", "O3");
+    // 각 레벨이 실제로 뭘 하는지 초보자용으로 풀어쓴 설명 (화면의 열 제목 옆 툴팁)
+    private static final List<OptLevel> LEVELS = List.of(
+            level("O0", "최적화 없음(기본값). 소스 코드와 어셈블리가 거의 한 줄씩 대응돼서 디버깅하기 가장 쉽지만, "
+                    + "실행 속도는 가장 느립니다."),
+            level("O1", "기본적인 최적화. 죽은 코드 제거, 간단한 상수 계산(상수 폴딩) 등 컴파일 시간을 크게 "
+                    + "늘리지 않는 선에서 적용합니다."),
+            level("O2", "가장 널리 쓰이는 \"권장\" 수준. 함수 인라이닝, 루프 최적화, 명령어 재배치 등 대부분의 "
+                    + "안전한 최적화를 적극적으로 적용합니다. 대부분의 릴리즈 빌드가 이 옵션을 씁니다."),
+            level("O3", "O2에 루프 벡터화(SIMD) 등 더 공격적인 최적화를 추가합니다. 바이너리 크기가 커질 수 있고, "
+                    + "코드에 따라 O2보다 항상 빠른 것은 아닙니다."));
 
     private final boolean requireGnu;
 
@@ -22,7 +31,7 @@ final class GccStyleToolchain implements Toolchain {
     }
 
     @Override
-    public List<String> levels() {
+    public List<OptLevel> levels() {
         return LEVELS;
     }
 
@@ -48,23 +57,28 @@ final class GccStyleToolchain implements Toolchain {
 
     /** {compiler} -S -O{n} input.c -o out.s */
     @Override
-    public List<String> assemblyArgs(String level, String sourceFile, String outputFile) {
+    public List<String> assemblyArgs(OptLevel level, String sourceFile, String outputFile) {
         return List.of("-S", flag(level), sourceFile, "-o", outputFile);
     }
 
     /** {compiler} -c -O{n} input.c -o out.o — 링크하지 않으므로 main()이 없어도 된다. */
     @Override
-    public List<String> objectArgs(String level, String sourceFile, String outputFile) {
+    public List<String> objectArgs(OptLevel level, String sourceFile, String outputFile) {
         return List.of("-c", flag(level), sourceFile, "-o", outputFile);
     }
 
     /** {compiler} -O{n} input.c -o out.exe — 링크까지 하므로 main()이 있어야 성공한다. */
     @Override
-    public List<String> executableArgs(String level, String sourceFile, String outputFile) {
+    public List<String> executableArgs(OptLevel level, String sourceFile, String outputFile) {
         return List.of(flag(level), sourceFile, "-o", outputFile);
     }
 
-    private static String flag(String level) {
-        return "-" + level;
+    /** 레벨 id가 곧 플래그 이름이라 (O2 → -O2) 화면의 열 제목도 플래그 그대로 보여준다. */
+    private static OptLevel level(String id, String description) {
+        return new OptLevel(id, "-" + id, description);
+    }
+
+    private static String flag(OptLevel level) {
+        return "-" + level.id();
     }
 }

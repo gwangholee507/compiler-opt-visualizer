@@ -1,29 +1,17 @@
 import { useEffect, useState } from 'react'
 import './App.css'
 import { diffLines } from './diff'
-
-const DEFAULT_CODE = `int square(int x) {
-    return x * x;
-}
-
-int sum_loop(int n) {
-    int total = 0;
-    for (int i = 0; i < n; i++) {
-        total += square(i);
-    }
-    return total;
-}
-`
+import {
+  FALLBACK_COMPILERS,
+  INITIAL_LANGUAGE,
+  SAMPLE_CODE,
+  defaultCompilerFor,
+  groupByLanguage,
+  initialLanguage,
+  switchDraft,
+} from './languages'
 
 const BACKEND_UNREACHABLE = '백엔드 서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.'
-
-// 각 최적화 레벨이 실제로 뭘 하는지 초보자용으로 풀어쓴 설명
-const OPTIMIZATION_INFO = {
-  O0: '최적화 없음(기본값). 소스 코드와 어셈블리가 거의 한 줄씩 대응돼서 디버깅하기 가장 쉽지만, 실행 속도는 가장 느립니다.',
-  O1: '기본적인 최적화. 죽은 코드 제거, 간단한 상수 계산(상수 폴딩) 등 컴파일 시간을 크게 늘리지 않는 선에서 적용합니다.',
-  O2: '가장 널리 쓰이는 "권장" 수준. 함수 인라이닝, 루프 최적화, 명령어 재배치 등 대부분의 안전한 최적화를 적극적으로 적용합니다. 대부분의 릴리즈 빌드가 이 옵션을 씁니다.',
-  O3: 'O2에 루프 벡터화(SIMD) 등 더 공격적인 최적화를 추가합니다. 바이너리 크기가 커질 수 있고, 코드에 따라 O2보다 항상 빠른 것은 아닙니다.',
-}
 
 function formatBytes(bytes) {
   if (bytes == null) return '-'
@@ -53,7 +41,7 @@ function InfoTooltip({ text }) {
 function AssemblyView({ assembly, baseAssembly }) {
   const lines = assembly.split('\n')
 
-  // 기준(O0)이 없거나 자기 자신이 기준이면 그냥 평문으로 표시
+  // 기준 레벨의 어셈블리가 없거나 자기 자신이 기준이면 그냥 평문으로 표시
   if (!baseAssembly) {
     return (
       <pre className="asm-block">
@@ -82,10 +70,12 @@ function AssemblyView({ assembly, baseAssembly }) {
   )
 }
 
-function OptimizationColumn({ result, baseAssembly }) {
-  const isBaseline = result.level === 'O0'
+// base: 비교 기준이 되는 결과 (서버가 준 첫 번째 레벨, clang/gcc에서는 -O0)
+function OptimizationColumn({ result, base }) {
+  const isBaseline = result.level === base.level
+  const baseAssembly = !isBaseline && base.success ? base.assembly : null
   const diffSummary =
-    !isBaseline && result.success && baseAssembly
+    result.success && baseAssembly
       ? diffLines(baseAssembly.split('\n'), result.assembly.split('\n'))
       : null
 
@@ -93,8 +83,8 @@ function OptimizationColumn({ result, baseAssembly }) {
     <div className="opt-column">
       <div className="opt-header">
         <h3>
-          -{result.level}
-          <InfoTooltip text={OPTIMIZATION_INFO[result.level]} />
+          {result.levelLabel}
+          <InfoTooltip text={result.levelDescription} />
         </h3>
         {result.success ? (
           <span className="opt-meta">
@@ -102,7 +92,7 @@ function OptimizationColumn({ result, baseAssembly }) {
             {diffSummary && (
               <span className="diff-badge">
                 {' '}
-                (+{diffSummary.addedCount} / -{diffSummary.removedCount} vs O0)
+                (+{diffSummary.addedCount} / -{diffSummary.removedCount} vs {base.levelLabel})
               </span>
             )}
             {result.executionTimeMs != null && (
@@ -120,10 +110,7 @@ function OptimizationColumn({ result, baseAssembly }) {
         )}
       </div>
       {result.success ? (
-        <AssemblyView
-          assembly={result.assembly}
-          baseAssembly={isBaseline ? null : baseAssembly}
-        />
+        <AssemblyView assembly={result.assembly} baseAssembly={baseAssembly} />
       ) : (
         <div className="error-box">
           <p className="error-box-title">⚠ {result.compilerLabel || '컴파일러'}가 이 코드를 컴파일하지 못했습니다</p>
@@ -135,25 +122,48 @@ function OptimizationColumn({ result, baseAssembly }) {
 }
 
 function App() {
-  const [code, setCode] = useState(DEFAULT_CODE)
+  const [code, setCode] = useState(SAMPLE_CODE[INITIAL_LANGUAGE])
+  // 언어별로 편집하던 코드. 다른 언어로 갔다가 돌아오면 여기서 복원한다 (새로고침하면 사라짐)
+  const [drafts, setDrafts] = useState({})
   const [results, setResults] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  const [compilers, setCompilers] = useState([])
-  const [selectedCompiler, setSelectedCompiler] = useState('clang')
+  const [compilers, setCompilers] = useState(FALLBACK_COMPILERS)
+  const [language, setLanguage] = useState(INITIAL_LANGUAGE)
+  const [selectedCompiler, setSelectedCompiler] = useState(FALLBACK_COMPILERS[0].id)
   const [runBenchmark, setRunBenchmark] = useState(false)
 
+  const languages = groupByLanguage(compilers)
+  const currentLanguage = languages.find((l) => l.id === language) ?? languages[0]
+  const sampleCode = SAMPLE_CODE[currentLanguage.id] ?? ''
+
   useEffect(() => {
+    // 목록을 받지 못하면 FALLBACK_COMPILERS를 그대로 둬서 화면이 깨지지 않게 한다
     fetch('/api/compilers')
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => {
+        if (data.length === 0) return
         setCompilers(data)
-        const firstAvailable = data.find((c) => c.available)
-        if (firstAvailable) setSelectedCompiler(firstAvailable.id)
+        const first = initialLanguage(groupByLanguage(data))
+        setLanguage(first.id)
+        setSelectedCompiler(defaultCompilerFor(first).id)
+        // C 컴파일러가 하나도 없어서 다른 언어로 시작하면 그 언어의 예제를 넣는다
+        if (first.id !== INITIAL_LANGUAGE) setCode(SAMPLE_CODE[first.id] ?? '')
       })
-      .catch(() => setCompilers([]))
+      .catch(() => {})
   }, [])
+
+  function handleLanguageChange(nextLanguage) {
+    const next = switchDraft(drafts, currentLanguage.id, nextLanguage, code)
+    setDrafts(next.drafts)
+    setCode(next.code)
+    setLanguage(nextLanguage)
+    setSelectedCompiler(defaultCompilerFor(languages.find((l) => l.id === nextLanguage)).id)
+    // 이전 언어의 결과가 남아 있으면 에디터의 코드와 맞지 않아 헷갈리므로 지운다
+    setResults(null)
+    setError(null)
+  }
 
   async function handleCompare() {
     setLoading(true)
@@ -188,7 +198,7 @@ function App() {
       <header>
         <h1>컴파일러 최적화 옵션 비교기</h1>
         <p className="subtitle">
-          같은 C 코드를 -O0 ~ -O3 로 컴파일해서 어셈블리와 바이너리 크기를 비교합니다.
+          같은 코드를 최적화 레벨별로 컴파일해서 어셈블리와 바이너리 크기를 비교합니다.
         </p>
       </header>
 
@@ -201,14 +211,28 @@ function App() {
         />
 
         <div className="controls-row">
-          <label className="compiler-select">
+          <label className="select-field">
+            언어
+            <select
+              value={currentLanguage.id}
+              onChange={(e) => handleLanguageChange(e.target.value)}
+            >
+              {languages.map((l) => (
+                <option key={l.id} value={l.id} disabled={!l.available}>
+                  {l.label}
+                  {!l.available ? ' (서버에 설치되지 않음)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="select-field">
             컴파일러
             <select
               value={selectedCompiler}
               onChange={(e) => setSelectedCompiler(e.target.value)}
             >
-              {compilers.length === 0 && <option value="clang">Clang (LLVM)</option>}
-              {compilers.map((c) => (
+              {currentLanguage.compilers.map((c) => (
                 <option key={c.id} value={c.id} disabled={!c.available}>
                   {c.label}
                   {!c.available ? ' (서버에 설치되지 않음)' : ''}
@@ -224,8 +248,17 @@ function App() {
               onChange={(e) => setRunBenchmark(e.target.checked)}
             />
             실행 시간 측정
-            <InfoTooltip text="O0~O3 각각을 실제로 링크하고 서버에서 여러 번 실행해서 걸린 시간을 잽니다. main() 함수가 있는 코드에서만 동작하며, 서버가 사용자 코드를 직접 실행하는 기능이라 기본값은 꺼져 있습니다." />
+            <InfoTooltip text="최적화 레벨마다 실제로 링크하고 서버에서 여러 번 실행해서 걸린 시간을 잽니다. main() 함수가 있는 코드에서만 동작하며, 서버가 사용자 코드를 직접 실행하는 기능이라 기본값은 꺼져 있습니다." />
           </label>
+
+          <button
+            type="button"
+            className="reset-sample"
+            onClick={() => setCode(sampleCode)}
+            disabled={code === sampleCode}
+          >
+            예제로 되돌리기
+          </button>
         </div>
 
         <button onClick={handleCompare} disabled={loading}>
@@ -234,19 +267,15 @@ function App() {
         {error && <p className="error-message">⚠ {error}</p>}
       </section>
 
-      {results && (
+      {results && results.length > 0 && (
         <section className="results-section-wrap">
           <p className="results-meta">
-            {results[0]?.compilerLabel || selectedCompiler} 기준 비교 결과
+            {results[0].compilerLabel || selectedCompiler} 기준 비교 결과
           </p>
           <div className="results-section">
-            {(() => {
-              const base = results.find((r) => r.level === 'O0')
-              const baseAssembly = base?.success ? base.assembly : null
-              return results.map((r) => (
-                <OptimizationColumn key={r.level} result={r} baseAssembly={baseAssembly} />
-              ))
-            })()}
+            {results.map((r) => (
+              <OptimizationColumn key={r.level} result={r} base={results[0]} />
+            ))}
           </div>
         </section>
       )}

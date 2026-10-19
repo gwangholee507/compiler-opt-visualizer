@@ -1,15 +1,15 @@
 server:
   port: 8080
-  # 이 PC에서 오는 접속만 받는다. 이 서버는 받은 C 코드를 컴파일하고 (옵션으로) 실행까지 하므로,
+  # 이 PC에서 오는 접속만 받는다. 이 서버는 받은 코드를 컴파일하고 (옵션으로) 실행까지 하므로,
   # 같은 네트워크의 다른 기기가 접속할 수 있으면 안 된다.
   # 정말 다른 기기에서 접속해야 한다면 신뢰할 수 있는 네트워크에서만
   # --server.address=0.0.0.0 (또는 환경 변수 SERVER_ADDRESS=0.0.0.0)으로 바꿔서 실행한다.
   address: 127.0.0.1
 
 compiler:
-  # 프론트엔드가 선택할 수 있는 컴파일러 목록.
+  # 프론트엔드가 선택할 수 있는 컴파일러 목록. 화면은 이 순서를 유지한 채 language별로 묶어서 보여준다.
   #
-  # language: 사용자 코드의 언어. 소스 파일 이름(c → input.c)이 이 값으로 정해진다. 필수.
+  # language: 사용자 코드의 언어 (c, cpp). 소스 파일 이름(c → input.c, cpp → input.cpp)이 이 값으로 정해진다. 필수.
   # toolchain: 컴파일러 계열. 어떤 인자로 컴파일러를 부르고 설치 여부를 어떻게 확인할지가 이 값으로 정해진다. 필수.
   #   clang, gcc는 둘 다 -S / -c / -O2 같은 GCC식 인자를 쓰고, gcc는 진짜 GNU GCC인지까지 확인한다.
   #   (사용할 수 있는 값은 toolchain 패키지의 Language, ToolchainKind 참고)
@@ -47,6 +47,29 @@ compiler:
         windows:
           - 'C:\msys64\ucrt64\bin\gcc.exe'
           - 'C:\msys64\mingw64\bin\gcc.exe'
+    # C++은 같은 계열(toolchain)의 C++용 실행 파일을 쓴다. clang/gcc로도 .cpp를 컴파일할 수는 있지만,
+    # 실행 시간 측정을 위해 링크할 때 C++ 표준 라이브러리가 붙지 않아 실패한다.
+    - id: clangxx
+      label: "Clang++ (LLVM)"
+      language: cpp
+      toolchain: clang
+      candidates: ["${OPTVIS_CLANGXX:}", clang++]
+      os-candidates:
+        windows:
+          - 'C:\msys64\ucrt64\bin\clang++.exe'
+          - 'C:\msys64\clang64\bin\clang++.exe'
+          - 'C:\msys64\mingw64\bin\clang++.exe'
+          - 'C:\Program Files\LLVM\bin\clang++.exe'
+    - id: gxx
+      label: "GNU G++"
+      language: cpp
+      toolchain: gcc
+      # macOS 기본 "g++"도 Apple clang의 별칭이라 gcc와 같은 이유로 맨 끝에 둬도 안전하다.
+      candidates: ["${OPTVIS_GXX:}", g++-16, g++-15, g++-14, g++-13, g++-12, g++]
+      os-candidates:
+        windows:
+          - 'C:\msys64\ucrt64\bin\g++.exe'
+          - 'C:\msys64\mingw64\bin\g++.exe'
 
 logging:
   level:

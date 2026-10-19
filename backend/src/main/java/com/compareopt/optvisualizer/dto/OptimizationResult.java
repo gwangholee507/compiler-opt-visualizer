@@ -1,8 +1,12 @@
 package com.compareopt.optvisualizer.dto;
 
+import com.compareopt.optvisualizer.toolchain.OptLevel;
+
 public class OptimizationResult {
 
-    private String level;          // "O0", "O1", "O2", "O3"
+    private String level;            // 레벨 id (예: "O2")
+    private String levelLabel;       // 화면의 열 제목 (예: "-O2")
+    private String levelDescription; // 이 레벨이 하는 일을 풀어쓴 설명 (열 제목 옆 툴팁)
     private boolean success;
     private String assembly;       // -S 결과 (실패 시 null)
     private Long binarySizeBytes;  // 실행 파일 크기 (실패 시 null)
@@ -15,9 +19,9 @@ public class OptimizationResult {
     private Double executionTimeMs; // runBenchmark=true일 때 측정된 실행 시간(최솟값). 측정 안 했으면 null
     private String executionError;  // 실행 측정을 시도했지만 실패/불가능했던 이유 (예: main() 없음)
 
-    public static OptimizationResult success(String level, String assembly, long binarySizeBytes, long compileTimeMs) {
+    public static OptimizationResult success(OptLevel level, String assembly, long binarySizeBytes, long compileTimeMs) {
         OptimizationResult r = new OptimizationResult();
-        r.level = level;
+        r.setLevel(level);
         r.success = true;
         r.assembly = assembly;
         r.binarySizeBytes = binarySizeBytes;
@@ -25,17 +29,32 @@ public class OptimizationResult {
         return r;
     }
 
-    public static OptimizationResult failure(String level, String errorMessage, long compileTimeMs) {
+    public static OptimizationResult failure(OptLevel level, String errorMessage, long compileTimeMs) {
         OptimizationResult r = new OptimizationResult();
-        r.level = level;
+        r.setLevel(level);
         r.success = false;
         r.errorMessage = errorMessage;
         r.compileTimeMs = compileTimeMs;
         return r;
     }
 
+    /** 결과마다 레벨의 이름과 설명을 함께 담아서, 화면이 컴파일러 목록과 따로 맞춰보지 않고 바로 그릴 수 있게 한다. */
+    private void setLevel(OptLevel level) {
+        this.level = level.id();
+        this.levelLabel = level.label();
+        this.levelDescription = level.description();
+    }
+
     public String getLevel() {
         return level;
+    }
+
+    public String getLevelLabel() {
+        return levelLabel;
+    }
+
+    public String getLevelDescription() {
+        return levelDescription;
     }
 
     public boolean isSuccess() {
