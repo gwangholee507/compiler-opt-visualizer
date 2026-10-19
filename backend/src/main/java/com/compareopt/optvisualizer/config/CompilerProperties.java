@@ -1,6 +1,8 @@
 package com.compareopt.optvisualizer.config;
 
 import com.compareopt.optvisualizer.platform.HostOs;
+import com.compareopt.optvisualizer.toolchain.Language;
+import com.compareopt.optvisualizer.toolchain.ToolchainKind;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -36,6 +38,10 @@ public class CompilerProperties {
         private String id;
         /** 프론트엔드 드롭다운에 보여줄 이름 */
         private String label;
+        /** 사용자 코드의 언어 (예: c). 소스 파일 이름이 이 값으로 정해진다. 필수. */
+        private Language language;
+        /** 컴파일러 계열 (예: clang, gcc). 명령줄 규칙과 설치 확인 방법이 이 값으로 정해진다. 필수. */
+        private ToolchainKind toolchain;
         /** 모든 OS에서 시도해볼 후보들 (순서대로 시도). PATH에 있는 실행 파일 이름 또는 절대 경로. */
         private List<String> candidates = new ArrayList<>();
         /** 특정 OS에서만 추가로 시도할 후보들. 키는 HostOs.configKey() ("windows", "macos", "linux"). */
@@ -55,6 +61,22 @@ public class CompilerProperties {
 
         public void setLabel(String label) {
             this.label = label;
+        }
+
+        public Language getLanguage() {
+            return language;
+        }
+
+        public void setLanguage(Language language) {
+            this.language = language;
+        }
+
+        public ToolchainKind getToolchain() {
+            return toolchain;
+        }
+
+        public void setToolchain(ToolchainKind toolchain) {
+            this.toolchain = toolchain;
         }
 
         public List<String> getCandidates() {

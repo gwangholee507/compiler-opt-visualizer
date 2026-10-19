@@ -3,6 +3,7 @@ package com.compareopt.optvisualizer.service;
 import com.compareopt.optvisualizer.dto.OptimizationResult;
 import com.compareopt.optvisualizer.platform.ProcessResult;
 import com.compareopt.optvisualizer.platform.ProcessRunner;
+import com.compareopt.optvisualizer.toolchain.Toolchain;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -17,11 +18,14 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * 선택된 컴파일러(clang/gcc 등)를 서브프로세스로 호출해 최적화 레벨(O0~O3)별로
+ * 선택된 컴파일러를 서브프로세스로 호출해 최적화 레벨별로
  * 어셈블리와 바이너리 크기, (옵트인 시) 실행 시간을 뽑아내는 서비스.
  *
- * 이 클래스에는 OS별 분기를 두지 않는다. 프로세스를 띄우고 죽이는 방식, 컴파일러 위치 탐색처럼
- * OS마다 달라지는 부분은 platform 패키지(ProcessRunner, HostOs)와 CompilerRegistry가 맡는다.
+ * 이 클래스에는 OS별 분기도, 언어·컴파일러별 분기도 두지 않는다.
+ * - 프로세스를 띄우고 죽이는 방식, 컴파일러 위치 탐색처럼 OS마다 달라지는 부분은
+ *   platform 패키지(ProcessRunner, HostOs)와 CompilerRegistry가 맡는다.
+ * - 소스 파일 이름, 최적화 레벨 목록, 컴파일러에 넘길 인자처럼 언어·컴파일러마다 달라지는 부분은
+ *   toolchain 패키지(Language, Toolchain)가 맡는다.
  *
  * 주의: 지금은 로컬 개인 프로젝트 단계라 별도 샌드박싱(Docker 등) 없이
  * 서버 프로세스 권한으로 직접 컴파일/실행을 수행합니다.
@@ -33,8 +37,6 @@ import java.util.List;
 public class CompilerService {
 
     private static final Logger log = LoggerFactory.getLogger(CompilerService.class);
-    private static final List<String> LEVELS = List.of("O0", "O1", "O2", "O3");
-    private static final String SOURCE_FILE_NAME = "input.c";
     private static final long COMPILE_TIMEOUT_SECONDS = 10;
     private static final long EXECUTION_TIMEOUT_SECONDS = 5;
     private static final int BENCHMARK_RUNS = 5;
@@ -52,21 +54,22 @@ public class CompilerService {
 
     public List<OptimizationResult> compareOptimizationLevels(String sourceCode, String compilerId, boolean runBenchmark) {
         CompilerRegistry.ResolvedCompiler compiler = compilerRegistry.resolve(compilerId);
+        List<String> levels = compiler.toolchain().levels();
 
         List<OptimizationResult> results = new ArrayList<>();
         Path workDir = null;
         try {
             workDir = Files.createTempDirectory("opt-visualizer-");
-            Files.writeString(workDir.resolve(SOURCE_FILE_NAME), sourceCode, StandardCharsets.UTF_8);
+            Files.writeString(workDir.resolve(compiler.language().sourceFileName()), sourceCode, StandardCharsets.UTF_8);
 
-            for (String level : LEVELS) {
+            for (String level : levels) {
                 OptimizationResult result = runOneLevel(workDir, level, compiler, runBenchmark);
                 result.setCompilerInfo(compiler.id(), compiler.label());
                 results.add(result);
             }
         } catch (IOException e) {
             log.error("임시 작업 디렉터리 생성 실패", e);
-            for (String level : LEVELS) {
+            for (String level : levels) {
                 OptimizationResult failure = OptimizationResult.failure(level, "서버 내부 오류: " + e.getMessage(), 0);
                 failure.setCompilerInfo(compiler.id(), compiler.label());
                 results.add(failure);
@@ -80,20 +83,22 @@ public class CompilerService {
     private OptimizationResult runOneLevel(Path workDir, String level,
                                             CompilerRegistry.ResolvedCompiler compiler, boolean runBenchmark) {
         long start = System.currentTimeMillis();
+        Toolchain toolchain = compiler.toolchain();
+        String sourceName = compiler.language().sourceFileName();
         String asmName = "out-" + level + ".s";
         String objName = "out-" + level + ".o";
 
-        // 1) 어셈블리 생성: {compiler} -S -O{n} input.c -o out.s
-        ProcessResult asmResult = runCompiler(workDir, compiler, "-S", "-" + level, SOURCE_FILE_NAME, "-o", asmName);
+        // 1) 어셈블리 생성 (예: {compiler} -S -O{n} input.c -o out.s)
+        ProcessResult asmResult = runCompiler(workDir, compiler, toolchain.assemblyArgs(level, sourceName, asmName));
         long elapsed = System.currentTimeMillis() - start;
 
         if (!asmResult.succeeded()) {
             return OptimizationResult.failure(level, asmResult.output(), elapsed);
         }
 
-        // 2) 오브젝트 파일 생성 (크기 비교용): {compiler} -c -O{n} input.c -o out.o
-        //    main() 유무와 무관하게 컴파일만 하면 되므로 링크(-o 실행 파일)가 아니라 -c를 사용.
-        ProcessResult objResult = runCompiler(workDir, compiler, "-c", "-" + level, SOURCE_FILE_NAME, "-o", objName);
+        // 2) 오브젝트 파일 생성 (크기 비교용, 예: {compiler} -c -O{n} input.c -o out.o)
+        //    main() 유무와 무관하게 만들 수 있어야 하므로 링크하지 않는다.
+        ProcessResult objResult = runCompiler(workDir, compiler, toolchain.objectArgs(level, sourceName, objName));
 
         long binarySize = 0;
         Path objFile = workDir.resolve(objName);
@@ -135,7 +140,9 @@ public class CompilerService {
         String exeName = "out-" + level + ".exe";
         Path exeFile = workDir.resolve(exeName);
 
-        ProcessResult linkResult = runCompiler(workDir, compiler, "-" + level, SOURCE_FILE_NAME, "-o", exeName);
+        String sourceName = compiler.language().sourceFileName();
+        ProcessResult linkResult = runCompiler(
+                workDir, compiler, compiler.toolchain().executableArgs(level, sourceName, exeName));
 
         if (!linkResult.succeeded() || !Files.exists(exeFile)) {
             return new ExecutionOutcome(null, linkFailureMessage(linkResult.output()));
@@ -186,10 +193,10 @@ public class CompilerService {
      *
      * 프로세스를 시작하지 못했거나 시간 초과면 그 사유를 output에 담은 실패 결과를 돌려준다.
      */
-    private ProcessResult runCompiler(Path workDir, CompilerRegistry.ResolvedCompiler compiler, String... args) {
+    private ProcessResult runCompiler(Path workDir, CompilerRegistry.ResolvedCompiler compiler, List<String> args) {
         List<String> command = new ArrayList<>();
         command.add(compiler.path());
-        command.addAll(List.of(args));
+        command.addAll(args);
         try {
             ProcessResult result = processRunner.run(
                     command, workDir, compiler.toolDir(), Duration.ofSeconds(COMPILE_TIMEOUT_SECONDS));

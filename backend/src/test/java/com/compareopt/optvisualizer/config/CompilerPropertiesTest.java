@@ -1,6 +1,8 @@
 package com.compareopt.optvisualizer.config;
 
 import com.compareopt.optvisualizer.platform.HostOs;
+import com.compareopt.optvisualizer.toolchain.Language;
+import com.compareopt.optvisualizer.toolchain.ToolchainKind;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -30,6 +32,14 @@ class CompilerPropertiesTest {
     void application_yml의_컴파일러_목록이_바인딩된다() {
         assertThat(properties.getOptions()).extracting(CompilerProperties.Option::getId)
                 .containsExactly("clang", "gcc");
+    }
+
+    @Test
+    void 언어와_컴파일러_계열이_소문자_설정값에서_바인딩된다() {
+        assertThat(option("clang").getLanguage()).isEqualTo(Language.C);
+        assertThat(option("clang").getToolchain()).isEqualTo(ToolchainKind.CLANG);
+        assertThat(option("gcc").getLanguage()).isEqualTo(Language.C);
+        assertThat(option("gcc").getToolchain()).isEqualTo(ToolchainKind.GCC);
     }
 
     @Test
