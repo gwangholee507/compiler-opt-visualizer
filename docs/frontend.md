@@ -19,17 +19,41 @@
 
 ---
 
+## `languages.js`
+**파일**: [`frontend/src/languages.js`](../frontend/src/languages.js)
+
+언어 선택과 언어별 코드 초안을 다루는 순수 함수 모음. 화면 상태와 분리해서 `languages.test.js`로 테스트합니다.
+
+### 상수
+- `SAMPLE_CODE`: 언어 id(`c`, `cpp`)별 예제 코드. 언어를 처음 고르거나 "예제로 되돌리기"를 누르면 들어갑니다.
+  표준 헤더를 쓰지 않는 예제만 둡니다 — Windows에 LLVM만 설치한 환경에서는 표준 헤더를 못 찾아 첫 화면부터 실패하기 때문
+- `INITIAL_LANGUAGE`: 처음 보여줄 언어 (`'c'`)
+- `FALLBACK_COMPILERS`: `/api/compilers`를 받지 못했을 때 쓰는 목록. 서버의 기본 컴파일러인 Clang 하나만 둡니다
+
+### `groupByLanguage(compilers) : Array<{ id, label, available, compilers }>`
+`/api/compilers` 응답을 `language` 기준으로 묶습니다. 언어 순서와 언어 안의 컴파일러 순서는 서버가 준 순서
+(= `application.yml`에 적은 순서)를 그대로 따릅니다. 언어의 `available`은 사용 가능한 컴파일러가 하나라도 있는지입니다.
+
+### `defaultCompilerFor(language)` / `initialLanguage(languages)`
+- `defaultCompilerFor`: 그 언어에서 기본으로 고를 컴파일러 — 사용 가능한 첫 컴파일러, 없으면 첫 컴파일러
+- `initialLanguage`: 페이지를 열었을 때 고를 언어 — 사용 가능한 컴파일러가 있는 첫 언어, 없으면 첫 언어
+
+### `switchDraft(drafts, fromLanguage, toLanguage, currentCode) : { drafts, code }`
+언어를 바꿀 때 지금 에디터의 코드를 `drafts[fromLanguage]`에 보관하고, `drafts[toLanguage]`(없으면 그 언어의
+`SAMPLE_CODE`, 그것도 없으면 빈 문자열)를 에디터에 넣을 코드로 돌려줍니다. 원래 객체는 바꾸지 않고 새 객체를 돌려줍니다.
+
+---
+
 ## `App.jsx`
 **파일**: [`frontend/src/App.jsx`](../frontend/src/App.jsx)
 
 ### 상수
-- `DEFAULT_CODE`: 텍스트 에디터에 처음 채워지는 예시 C 코드 (`square`, `sum_loop`)
 - `BACKEND_UNREACHABLE`: 서버에 연결하지 못했을 때 보여주는 안내 문구
 - 백엔드 주소는 상수로 두지 않습니다. API는 항상 화면을 내려준 서버의 상대 경로(`/api/compilers`,
   `/api/compile`)로 호출합니다 — 배포된 jar에서는 백엔드가 화면도 함께 내보내고, 개발 중에는 Vite 개발 서버가
   `/api`를 백엔드로 넘겨주기 때문입니다 (아래 `vite.config.js` 참고).
-- `OPTIMIZATION_INFO`: `O0`~`O3` 각 레벨이 실제로 어떤 최적화를 하는지 초보자용으로 풀어쓴 설명 맵.
-  `InfoTooltip`에 전달되는 텍스트의 원본
+- 최적화 레벨의 이름과 설명은 프론트엔드에 두지 않습니다. 백엔드가 결과마다 `levelLabel`, `levelDescription`으로
+  보내주므로, 레벨이 다른 언어가 추가돼도 화면을 고칠 필요가 없습니다.
 
 ### `InfoTooltip({ text })` (컴포넌트)
 컬럼 헤더의 ⓘ 아이콘. 마우스 호버 또는 `tabIndex={0}`을 통한 키보드 포커스 시
@@ -50,14 +74,14 @@
 
 ### `AssemblyView({ assembly, baseAssembly })` (컴포넌트)
 어셈블리 텍스트를 줄 단위 `<div>`로 쪼개서 렌더링.
-- `baseAssembly`가 없으면(= O0 자신이거나 기준이 없는 경우) 그냥 평문으로 표시
+- `baseAssembly`가 없으면(= 기준 레벨 자신이거나 기준 레벨이 컴파일에 실패한 경우) 그냥 평문으로 표시
 - `baseAssembly`가 있으면 `diffLines()`로 각 줄이 `'added'`인지 계산해서, 새로 생긴/바뀐 줄에
   `diff-added` CSS 클래스를 붙여 초록색으로 강조
 
-### `OptimizationColumn({ result, baseAssembly })` (컴포넌트)
-결과 화면의 컬럼 하나(예: "-O2" 박스)를 그리는 컴포넌트.
-- 헤더에 레벨 이름(`-O0`) + `InfoTooltip`, 바이너리(오브젝트) 크기, 컴파일 시간(ms) 표시
-- O0이 아니고 컴파일에 성공했으면 `diffLines()`로 `(+added / -removed vs O0)` 배지를 헤더에 추가
+### `OptimizationColumn({ result, base })` (컴포넌트)
+결과 화면의 컬럼 하나(예: "-O2" 박스)를 그리는 컴포넌트. `base`는 비교 기준이 되는 결과(응답의 첫 번째 레벨)입니다.
+- 헤더에 `result.levelLabel`(예: `-O0`) + `InfoTooltip(result.levelDescription)`, 바이너리(오브젝트) 크기, 컴파일 시간(ms) 표시
+- 기준 레벨이 아니고 기준과 자신 모두 컴파일에 성공했으면 `diffLines()`로 `(+added / -removed vs {base.levelLabel})` 배지를 헤더에 추가
 - `result.executionTimeMs`가 있으면(= `runBenchmark=true`였고 측정 성공) `⏱ 실행 {formatMs(...)}` 배지 추가
 - 측정을 시도했지만 실행 파일을 못 만들었으면(주로 `main()` 없음) `executionError`를 툴팁으로 붙인
   회색 "⏱ 실행 불가" 배지를 대신 표시 — 컴파일 자체는 성공이므로 에러로 취급하지 않음
@@ -65,23 +89,33 @@
   `"⚠ {compilerLabel}가 이 코드를 컴파일하지 못했습니다"` 안내와 함께 `errorMessage`(정리된 컴파일러 stderr)를 표시
 
 ### `App()` (최상위 컴포넌트)
-페이지 전체를 구성하는 루트 컴포넌트. 상태 7개를 관리:
-- `code`: 텍스트 에디터에 입력된 C 코드
+페이지 전체를 구성하는 루트 컴포넌트. 관리하는 상태:
+- `code`: 텍스트 에디터에 입력된 코드 (처음에는 `SAMPLE_CODE.c`)
+- `drafts`: 언어 id별로 편집하던 코드. 다른 언어에 갔다가 돌아오면 여기서 복원 (메모리에만 있어서 새로고침하면 사라짐)
 - `results`: 백엔드 응답(`OptimizationResult` 배열), 아직 요청 전이면 `null`
 - `loading`: 요청 진행 중 여부 (버튼 비활성화 + "컴파일 중..." 텍스트에 사용)
 - `error`: 요청 실패 시 에러 메시지
-- `compilers`: `GET /api/compilers` 응답(`{id, label, available}` 배열) — 드롭다운 옵션 목록
-- `selectedCompiler`: 드롭다운에서 선택된 컴파일러 id (기본 `'clang'`)
+- `compilers`: `GET /api/compilers` 응답(`{id, label, available, language, languageLabel}` 배열). 받기 전이나 실패 시 `FALLBACK_COMPILERS`
+- `language`: 선택된 언어 id (기본 `'c'`)
+- `selectedCompiler`: 선택된 컴파일러 id (기본 `'clang'`)
 - `runBenchmark`: "실행 시간 측정" 체크박스 상태 (기본 `false`, 옵트인)
 
+매 렌더링마다 `groupByLanguage(compilers)`로 언어 목록을 만들고, 그중 `language`에 해당하는 것을 현재 언어로 씁니다.
+
 #### `useEffect` (마운트 시 1회)
-`GET /api/compilers`를 호출해 `compilers`를 채우고, 사용 가능한(`available: true`) 첫 컴파일러를
-`selectedCompiler`로 자동 선택한다. 요청이 실패해도 조용히 빈 배열로 두고(드롭다운에 "Clang (LLVM)"
-기본값만 남음) 화면이 깨지지 않게 한다.
+`GET /api/compilers`를 호출해 `compilers`를 채우고, `initialLanguage()`로 고른 언어와 그 언어의
+`defaultCompilerFor()` 컴파일러를 선택한다. C 컴파일러가 하나도 없어서 다른 언어로 시작하면 그 언어의 예제를 넣는다.
+요청이 실패하거나 빈 목록이면 `FALLBACK_COMPILERS`(Clang 하나)를 그대로 둬서 화면이 깨지지 않게 한다.
+
+#### `handleLanguageChange(nextLanguage)` (내부 함수, 언어 드롭다운의 onChange)
+1. `switchDraft()`로 지금 코드를 원래 언어의 초안에 보관하고, 새 언어의 초안(없으면 예제)을 에디터에 넣음
+2. 새 언어의 `defaultCompilerFor()` 컴파일러를 선택
+3. `results`와 `error`를 지움 — 이전 언어의 결과가 남아 있으면 에디터의 코드와 맞지 않아 헷갈리기 때문
+   (컴파일러만 바꿀 때는 코드도 결과도 그대로 둠)
 
 #### `handleCompare()` (내부 함수, "비교하기" 버튼의 onClick)
 1. `loading = true`, 이전 `results`/`error` 초기화
-2. `POST /api/compile`로 `{ code, compiler: selectedCompiler, runBenchmark }`를 JSON으로 전송
+2. `POST /api/compile`로 `{ code, compiler: selectedCompiler, runBenchmark }`를 JSON으로 전송 (언어는 보내지 않음 — 서버가 컴파일러로 정함)
 3. 응답이 실패(`!res.ok`)면 에러 바디(`{ message }`, 백엔드의 `GlobalExceptionHandler`가 내려줌)를 파싱해
    메시지를 뽑고, 없으면 HTTP 상태코드로 대체 메시지 생성
    - 상태코드가 502/503/504면 `BACKEND_UNREACHABLE` 문구를 씀. 개발 서버의 프록시는 백엔드가 꺼져 있으면 502를 돌려줌
@@ -92,12 +126,15 @@
 
 #### 렌더링 흐름
 1. 상단에 제목/설명, 코드 에디터(`<textarea>`)
-2. 컴파일러 선택 `<select>`(사용 불가능한 항목은 `disabled`) + "실행 시간 측정" 체크박스(+ 설명 툴팁)
+2. 컨트롤 줄
+   - **언어** `<select>`: 사용 가능한 컴파일러가 없는 언어는 `disabled` + "(서버에 설치되지 않음)"
+   - **컴파일러** `<select>`: 지금 언어의 컴파일러만 표시, 사용 불가능한 항목은 `disabled`
+   - "실행 시간 측정" 체크박스(+ 설명 툴팁)
+   - **예제로 되돌리기** 버튼: 지금 언어의 `SAMPLE_CODE`로 되돌림. 이미 예제와 같으면 비활성화
 3. "비교하기" 버튼, 에러 메시지(있으면)
 4. `results`가 있으면:
    - 어떤 컴파일러 기준 결과인지 안내 문구(`results[0].compilerLabel`) 표시
-   - `results`에서 `level === 'O0'`인 항목을 찾아 `baseAssembly`로 지정 (O0이 실패했으면 `null`)
-   - 각 결과를 `OptimizationColumn`으로 렌더링하며 `baseAssembly`를 함께 전달
+   - 첫 번째 결과(`results[0]`, clang/gcc에서는 `-O0`)를 기준으로 삼아 각 결과를 `OptimizationColumn`으로 렌더링
 
 ---
 

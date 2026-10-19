@@ -29,14 +29,15 @@ CORS 허용 설정(`@CrossOrigin`)은 일부러 두지 않습니다. 화면은 �
 ### `listCompilers() : List<CompilerOptionResponse>`
 - **경로**: `GET /api/compilers`
 - **동작**: `CompilerRegistry.listAll()`이 반환하는 내부 `ResolvedCompiler` 리스트를, 실행 파일 경로는 뺀
-  `(id, label, available)` 형태로 변환해서 응답. 프론트엔드가 페이지 로드 시 이 목록으로 드롭다운을 채움.
+  `(id, label, available, language, languageLabel)` 형태로 변환해서 응답. 순서는 `application.yml`에 적은 순서 그대로.
+  프론트엔드가 페이지 로드 시 이 목록을 `language`로 묶어서 언어·컴파일러 드롭다운을 채움.
 
 ### `compile(CompileRequest request) : List<OptimizationResult>`
 - **경로**: `POST /api/compile`
-- **입력**: `{ "code": "...", "compiler": "clang"|"gcc", "runBenchmark": true|false }`
-  (`compiler` 기본값 `"clang"`, `runBenchmark` 기본값 `false`)
+- **입력**: `{ "code": "...", "compiler": "clang"|"gcc"|"clangxx"|"gxx", "runBenchmark": true|false }`
+  (`compiler` 기본값 `"clang"`, `runBenchmark` 기본값 `false`). 언어는 따로 받지 않고 컴파일러에 설정된 `language`로 정함
 - **동작**: `@Valid`로 `CompileRequest`를 검증한 뒤, `CompilerService.compareOptimizationLevels()`에 세 값을 그대로 위임
-- **출력**: O0~O3 각각의 결과를 담은 `OptimizationResult` 리스트 (JSON 배열)
+- **출력**: 그 컴파일러의 toolchain이 정한 레벨(clang/gcc는 O0~O3) 순서대로 결과를 담은 `OptimizationResult` 리스트 (JSON 배열)
 - 검증 실패(코드가 비어있거나 20,000자 초과) 시 Spring이 자동으로 400 Bad Request를 반환하고,
   `GlobalExceptionHandler`가 그 예외를 가로채 `{ message: "..." }` 형태로 응답을 정리함
 - 존재하지 않거나 서버에 설치되지 않은 `compiler` id를 보내면 `CompilerRegistry.resolve()`가
@@ -61,7 +62,7 @@ toolchain이 정한 버전 확인 명령(지금은 모두 `{candidate} --version
   그 OS에서만 `candidates` 뒤에 이어서 시도합니다. `Option.candidatesFor(HostOs)`가 이 순서대로 합쳐서
   돌려주며, 빈 값은 건너뜁니다.
   - 후보에는 PATH에 있는 실행 파일 이름(`gcc-16`)과 절대 경로(`C:\msys64\ucrt64\bin\gcc.exe`)를 모두 쓸 수 있습니다.
-  - `candidates` 맨 앞의 `${OPTVIS_CLANG:}` / `${OPTVIS_GCC:}`는 환경 변수로 경로를 직접 지정하는 자리입니다.
+  - `candidates` 맨 앞의 `${OPTVIS_CLANG:}` / `${OPTVIS_GCC:}` / `${OPTVIS_CLANGXX:}` / `${OPTVIS_GXX:}`는 환경 변수로 경로를 직접 지정하는 자리입니다.
     환경 변수가 없으면 빈 값이 되어 건너뜁니다.
 - `toolDirOf(executable)` / `ResolvedCompiler.toolDir()`: 절대 경로로 찾은 컴파일러면 그 실행 파일이 들어 있는
   디렉터리를 돌려줍니다 (PATH의 이름으로 찾았으면 `null`). 이 디렉터리는 컴파일러와, 그 컴파일러로 만든
@@ -91,8 +92,8 @@ clang/gcc(`GccStyleToolchain`) 기준입니다.
 전체 흐름을 총괄하는 메서드.
 1. `CompilerRegistry.resolve(compilerId)`로 사용할 컴파일러의 실제 경로, 언어, toolchain을 얻음 (실패 시 예외)
 2. `Files.createTempDirectory()`로 임시 작업 디렉터리 생성
-3. 사용자 코드를 `Language.sourceFileName()`(C는 `input.c`)으로 저장
-4. `Toolchain.levels()`(clang/gcc는 `["O0", "O1", "O2", "O3"]`)를 순회하며 각각 `runOneLevel()` 호출, 결과에 `setCompilerInfo()`로 어떤 컴파일러를 썼는지 기록
+3. 사용자 코드를 `Language.sourceFileName()`(C는 `input.c`, C++은 `input.cpp`)으로 저장
+4. `Toolchain.levels()`(clang/gcc는 `O0`~`O3`의 `OptLevel`)를 순회하며 각각 `runOneLevel()` 호출, 결과에 `setCompilerInfo()`로 어떤 컴파일러를 썼는지 기록
 5. 예외 발생 시(임시 디렉터리 생성 실패 등) 모든 레벨을 실패 결과로 채움
 6. `finally` 블록에서 `cleanup()`으로 임시 파일 반드시 삭제
 
@@ -133,6 +134,7 @@ Windows에서는 방금 종료된 실행 파일이 백신 검사 등으로 잠�
 
 ## `toolchain` 패키지 — 언어/컴파일러마다 다른 부분
 **파일**: [`toolchain/Language.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/Language.java),
+[`toolchain/OptLevel.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/OptLevel.java),
 [`toolchain/ToolchainKind.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/ToolchainKind.java),
 [`toolchain/Toolchain.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/Toolchain.java),
 [`toolchain/GccStyleToolchain.java`](../backend/src/main/java/com/compareopt/optvisualizer/toolchain/GccStyleToolchain.java)
@@ -141,8 +143,15 @@ Windows에서는 방금 종료된 실행 파일이 백신 검사 등으로 잠�
 `CompilerService`에는 `if (gcc)`나 `if (rust)` 같은 분기를 두지 않고, 새 언어/컴파일러는 이 패키지에 추가합니다.
 
 ### `Language` (enum)
-`application.yml`의 `language` 값 (지금은 `C`만 있음). 소스 파일 이름(`sourceFileName()`, C는 `input.c`)만 정합니다.
-컴파일러가 확장자로 언어를 판단하기 때문에 언어마다 파일 이름이 다릅니다.
+`application.yml`의 `language` 값 (`C`, `CPP`). 언어마다 세 가지만 정합니다.
+- `id()`: API 응답과 화면에서 쓰는 식별자 (`"c"`, `"cpp"`)
+- `label()`: 화면의 언어 목록에 보여줄 이름 (`"C"`, `"C++"`)
+- `sourceFileName()`: 임시 디렉터리에 저장할 파일 이름 (`input.c`, `input.cpp`). 컴파일러가 확장자로 언어를 판단하기 때문에 언어마다 다릅니다.
+
+### `OptLevel` (record)
+`(id, label, description)` — 비교할 최적화 레벨 하나. `id`는 컴파일러 인자와 출력 파일 이름에(`O2` → `-O2`, `out-O2.s`),
+`label`은 화면의 열 제목에(`-O2`), `description`은 열 제목 옆 ⓘ 툴팁에 쓰입니다. 화면은 이 값을 응답에서 그대로
+가져다 쓰므로, 레벨이 다른 언어(예: Rust의 `opt-level`)를 추가해도 프론트엔드를 고칠 필요가 없습니다.
 
 ### `ToolchainKind` (enum)
 `application.yml`의 `toolchain` 값. 각 값은 `toolchain()`으로 실제 `Toolchain` 구현을 돌려줍니다.
@@ -155,14 +164,15 @@ Windows에서는 방금 종료된 실행 파일이 백신 검사 등으로 잠�
 ### `Toolchain` (interface)
 컴파일러 계열마다 달라지는 "명령줄 만드는 법". 돌려주는 인자에는 실행 파일 경로를 넣지 않습니다
 (경로는 `CompilerRegistry`가 찾아서 `CompilerService`가 맨 앞에 붙임). 파일 이름은 모두 작업 디렉터리 기준 상대 경로입니다.
-- `levels()`: 비교할 최적화 레벨 id 목록. 결과도 이 순서로 만들어짐
+- `levels()`: 비교할 최적화 레벨(`OptLevel`) 목록. 결과도 이 순서로 만들어지고, 화면은 첫 번째 레벨을 비교 기준으로 삼음
 - `versionArgs()` / `versionMismatch(output)`: 설치 확인에 쓸 인자와, 그 출력이 이 계열의 컴파일러가 맞는지 판정
   (맞으면 empty, 아니면 건너뛰는 이유 — 시작 로그에 남음)
 - `assemblyArgs()` / `objectArgs()` / `executableArgs()`: 어셈블리, 오브젝트 파일(진입점 없어도 성공해야 함),
   실행 파일(진입점 없으면 실패해도 됨 — 실행 측정만 건너뜀)을 만드는 인자
 
 ### `GccStyleToolchain`
-clang과 GCC처럼 GCC식 명령줄(`-S`, `-c`, `-O2`)을 쓰는 컴파일러. 레벨은 `O0`~`O3`.
+clang과 GCC처럼 GCC식 명령줄(`-S`, `-c`, `-O2`)을 쓰는 컴파일러. C++의 clang++/g++도 같은 구현을 씁니다.
+레벨은 `O0`~`O3`이고, 각 레벨의 초보자용 설명(예전에는 프론트엔드에 있던 툴팁 문구)도 여기서 정합니다.
 `ToolchainKind`를 통해서만 만들어지도록 패키지 밖에는 공개하지 않습니다.
 
 ---
@@ -218,7 +228,7 @@ Windows 도구가 쓰는 `\r\n`을 `\n`으로 통일.
 `message` 필드가 없어서 프론트가 실패 원인을 사용자에게 보여줄 수 없었다.
 
 ### `handleValidation(MethodArgumentNotValidException e) : ResponseEntity<ErrorResponse>`
-`CompileRequest`의 `@NotBlank`/`@Size` 검증 실패 시 호출. 첫 번째 필드 에러의 메시지(예: "C 코드를 입력해주세요.")를
+`CompileRequest`의 `@NotBlank`/`@Size` 검증 실패 시 호출. 첫 번째 필드 에러의 메시지(예: "코드를 입력해주세요.")를
 뽑아 400 응답으로 반환.
 
 ### `handleIllegalArgument(IllegalArgumentException e) : ResponseEntity<ErrorResponse>`
@@ -244,7 +254,7 @@ Windows 도구가 쓰는 `\r\n`을 `\n`으로 통일.
 요청 바디를 받는 객체. `@NotBlank`, `@Size(max = 20000)` 검증 애너테이션이 붙어있어
 컨트롤러의 `@Valid`와 함께 자동으로 유효성 검사가 이루어집니다.
 - `compiler` (기본값 `"clang"`): 사용할 컴파일러 id. 여기 담긴 문자열 자체는 검증하지 않고,
-  `CompilerRegistry.resolve()`에서 화이트리스트 검증함
+  `CompilerRegistry.resolve()`에서 화이트리스트 검증함. 코드의 언어도 이 컴파일러에 설정된 `language`로 정해짐
 - `runBenchmark` (기본값 `false`): true면 실행 시간까지 측정 (옵트인)
 
 ## `OptimizationResult` (DTO)
@@ -254,8 +264,10 @@ Windows 도구가 쓰는 `\r\n`을 `\n`으로 통일.
 `success()` / `failure()` 정적 팩토리 메서드로만 만들 수 있게 해서, 성공/실패 상태에 맞지 않는
 필드 조합(예: 실패인데 assembly가 채워짐)이 생기지 않도록 강제합니다.
 
-- `success(level, assembly, binarySizeBytes, compileTimeMs)`
-- `failure(level, errorMessage, compileTimeMs)`
+- `success(OptLevel level, assembly, binarySizeBytes, compileTimeMs)`
+- `failure(OptLevel level, errorMessage, compileTimeMs)`
+- 두 팩토리 모두 레벨의 `level`(id), `levelLabel`(열 제목), `levelDescription`(툴팁 설명)을 함께 채움.
+  결과마다 레벨 정보를 담아두면 화면이 컴파일러 목록과 따로 맞춰보지 않고 바로 그릴 수 있음
 - `setCompilerInfo(compilerId, compilerLabel)`: success/failure 여부와 무관하게 항상 호출되어
   어떤 컴파일러로 만든 결과인지 붙여줌
 - `setExecutionResult(executionTimeMs, executionError)`: `runBenchmark=true`일 때만 채워짐.
@@ -264,8 +276,9 @@ Windows 도구가 쓰는 `\r\n`을 `\n`으로 통일.
 ## `CompilerOptionResponse` (DTO)
 **파일**: [`backend/src/main/java/.../dto/CompilerOptionResponse.java`](../backend/src/main/java/com/compareopt/optvisualizer/dto/CompilerOptionResponse.java)
 
-`(String id, String label, boolean available)` — `GET /api/compilers` 응답 항목 하나.
-실행 파일 경로는 서버 내부 정보라 일부러 포함하지 않음.
+`(String id, String label, boolean available, String language, String languageLabel)` — `GET /api/compilers` 응답 항목 하나.
+`language`/`languageLabel`은 `Language.id()`/`label()` (예: `"cpp"` / `"C++"`).
+실행 파일 경로는 서버 내부 정보라 일부러 포함하지 않음 (`CompileControllerTest`에서 확인).
 
 ---
 
